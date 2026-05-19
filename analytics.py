@@ -1,0 +1,86 @@
+import os
+import json
+import logging
+import datetime
+from groq import Groq
+
+logger = logging.getLogger("analytics")
+
+DATA_DIR = "data"
+LEADS_FILE = os.path.join(DATA_DIR, "leads.csv")
+LOGS_FILE = os.path.join(DATA_DIR, "call_logs.json")
+
+def save_lead_csv(name: str, phone: str, city: str):
+    try:
+        os.makedirs(DATA_DIR, exist_ok=True)
+        if not os.path.exists(LEADS_FILE):
+            with open(LEADS_FILE, "w", encoding="utf-8") as f:
+                f.write("Timestamp,Name,Phone,City\n")
+        with open(LEADS_FILE, "a", encoding="utf-8") as f:
+            timestamp = datetime.datetime.now().isoformat()
+            f.write(f'"{timestamp}","{name}","{phone}","{city}"\n')
+        logger.info("[ANALYTICS] Lead saved to CSV.")
+    except Exception as e:
+        logger.error(f"[ANALYTICS] Failed to save lead: {e}")
+
+async def analyze_and_save_call(phone_number: str, direction: str, chat_messages: list):
+    try:
+        os.makedirs(DATA_DIR, exist_ok=True)
+        
+        # Build transcript string
+        transcript = []
+        for msg in chat_messages:
+            role = getattr(msg, "role", "unknown")
+            content = getattr(msg, "content", "")
+            if isinstance(content, list):
+                content = " ".join([str(c) for c in content])
+            transcript.append(f"{role}: {content}")
+            
+        full_transcript = "\n".join(transcript)
+        
+        # Call Groq for sentiment and summary
+        client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+        prompt = (
+            "Analyze the following call transcript. Provide a JSON response with exactly these keys:\n"
+            "- \"summary\": A 1-2 sentence summary of the call.\n"
+            "- \"sentiment\": Positive, Neutral, or Negative.\n"
+            "- \"caller_intent\": What the caller was asking about or wanted.\n\n"
+            f"Transcript:\n{full_transcript}"
+        )
+        
+        response = client.chat.completions.create(
+            messages=[{"role": "user", "content": prompt}],
+            model="llama-3.3-70b-versatile",
+            response_format={"type": "json_object"}
+        )
+        
+        analysis = json.loads(response.choices[0].message.content)
+        
+        # Append to call_logs.json
+        logs = []
+        if os.path.exists(LOGS_FILE):
+            try:
+                with open(LOGS_FILE, "r", encoding="utf-8") as f:
+                    logs = json.load(f)
+            except Exception:
+                pass
+                
+        log_entry = {
+            "timestamp": datetime.datetime.now().isoformat(),
+            "phone_number": phone_number,
+            "direction": direction,
+            "summary": analysis.get("summary", "No summary available"),
+            "sentiment": analysis.get("sentiment", "Neutral"),
+            "caller_intent": analysis.get("caller_intent", "Unknown"),
+            "transcript": full_transcript
+        }
+        
+        logs.append(log_entry)
+        
+        with open(LOGS_FILE, "w", encoding="utf-8") as f:
+            json.dump(logs, f, indent=2)
+            
+        logger.info("[ANALYTICS] Call log and sentiment saved.")
+        
+    except Exception as e:
+        logger.error(f"[ANALYTICS] Failed to analyze/save call log: {e}")

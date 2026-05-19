@@ -25,3 +25,21 @@ yarn-error.log*
 # IDE settings
 .vscode/
 .idea/
+
+# Runtime data & call logs (generated at runtime, may contain PII)
+data/
+KMS/logs/
+
+# Sensitive API/telephony dumps (contain credentials or PII)
+vobiz_dump.json
+vobiz_transcript_dump.json
+
+# Raw Antigravity chat logs
+antigravity_raw_chat_log.txt
+
+# Graphify output (generated artefacts)
+graphify-out/
+
+# Misc temp files
+*.tmp
+*.log

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from 'react';
-import { Phone, MessageSquare, Loader2, Sparkles } from 'lucide-react';
+import { Phone, MessageSquare, Loader2, Sparkles, Server } from 'lucide-react';
 
 export default function CallDispatcher() {
     const [phoneNumber, setPhoneNumber] = useState('');
@@ -41,69 +41,67 @@ export default function CallDispatcher() {
     };
 
     return (
-        <div className="relative group max-w-md w-full">
-            {/* Glow Effect */}
-            <div className="absolute -inset-0.5 bg-gradient-to-r from-blue-500 to-purple-600 rounded-2xl opacity-75 group-hover:opacity-100 transition duration-1000 group-hover:duration-200 blur-lg animate-tilt"></div>
-
-            <div className="relative p-8 bg-black/80 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl">
-                <div className="flex items-center justify-between mb-8">
-                    <h2 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-400">
-                        Deploy Agent
-                    </h2>
-                    <Sparkles className="w-5 h-5 text-purple-400 animate-pulse" />
+        <div className="w-full">
+            <div className="p-8">
+                <div className="flex items-center justify-between mb-8 pb-4 border-b border-[#30363d]">
+                    <div className="flex items-center gap-3">
+                        <div className="p-2 bg-[#2f81f7]/10 text-[#2f81f7] rounded-lg">
+                            <Phone className="w-5 h-5" />
+                        </div>
+                        <div>
+                            <h2 className="text-lg font-semibold text-[#e6edf3]">Manual Dial</h2>
+                            <p className="text-sm text-[#8b949e]">Deploy an agent to a specific number</p>
+                        </div>
+                    </div>
                 </div>
 
-                <form onSubmit={handleDispatch} className="space-y-6">
-                    <div className="space-y-2">
-                        <label className="text-sm text-gray-400 font-medium flex items-center gap-2">
-                            <Phone className="w-4 h-4" /> Phone Number
-                        </label>
+                <form onSubmit={handleDispatch} className="space-y-5">
+                    <div className="space-y-1.5">
+                        <label className="text-sm font-medium text-[#e6edf3]">Phone Number</label>
                         <input
                             type="tel"
                             placeholder="+919876543210"
                             required
                             value={phoneNumber}
                             onChange={(e) => setPhoneNumber(e.target.value)}
-                            className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent text-white placeholder-gray-600 outline-none transition-all duration-300"
+                            className="w-full px-3 py-2.5 bg-[#0d1117] border border-[#30363d] rounded-lg focus:ring-1 focus:ring-[#2f81f7] focus:border-[#2f81f7] text-[#e6edf3] placeholder-[#8b949e] outline-none transition-all text-sm"
                         />
                     </div>
 
-                    <div className="space-y-2">
-                        <label className="text-sm text-gray-400 font-medium flex items-center gap-2">
-                            <MessageSquare className="w-4 h-4" /> Context / Prompt
-                        </label>
+                    <div className="space-y-1.5">
+                        <label className="text-sm font-medium text-[#e6edf3]">Context / Prompt</label>
                         <textarea
                             placeholder="e.g. You are calling regarding a coffee order..."
                             value={prompt}
                             onChange={(e) => setPrompt(e.target.value)}
-                            className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent text-white placeholder-gray-600 outline-none transition-all duration-300 h-28 resize-none"
+                            className="w-full px-3 py-2.5 bg-[#0d1117] border border-[#30363d] rounded-lg focus:ring-1 focus:ring-[#2f81f7] focus:border-[#2f81f7] text-[#e6edf3] placeholder-[#8b949e] outline-none transition-all h-24 resize-none text-sm"
                         />
                     </div>
 
                     <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                            <label className="text-sm text-gray-400 font-medium">Model provider</label>
+                        <div className="space-y-1.5">
+                            <label className="text-sm font-medium text-[#e6edf3]">Model provider</label>
                             <select
-                                className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white outline-none focus:ring-2 focus:ring-blue-500"
+                                className="w-full px-3 py-2.5 bg-[#0d1117] border border-[#30363d] rounded-lg text-[#e6edf3] outline-none focus:ring-1 focus:ring-[#2f81f7] focus:border-[#2f81f7] text-sm"
                                 name="modelProvider"
-                                defaultValue="openai"
+                                defaultValue="groq"
                             >
                                 <option value="openai">OpenAI (GPT-4o)</option>
                                 <option value="groq">Groq (Llama 3)</option>
                             </select>
                         </div>
-                        <div className="space-y-2">
-                            <label className="text-sm text-gray-400 font-medium">Voice</label>
+                        <div className="space-y-1.5">
+                            <label className="text-sm font-medium text-[#e6edf3]">Voice</label>
                             <select
-                                className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white outline-none focus:ring-2 focus:ring-purple-500"
+                                className="w-full px-3 py-2.5 bg-[#0d1117] border border-[#30363d] rounded-lg text-[#e6edf3] outline-none focus:ring-1 focus:ring-[#2f81f7] focus:border-[#2f81f7] text-sm"
                                 name="voice"
                                 defaultValue="alloy"
                             >
                                 <option value="alloy">Alloy (US)</option>
                                 <option value="echo">Echo (US)</option>
                                 <option value="shimmer">Shimmer (US)</option>
-                                <option value="anushka">Anushka (Indian - Sarvam)</option>
-                                <option value="aravind">Aravind (Indian - Sarvam)</option>
+                                <option value="anushka">Anushka (IN)</option>
+                                <option value="aravind">Aravind (IN)</option>
                             </select>
                         </div>
                     </div>
@@ -111,11 +109,11 @@ export default function CallDispatcher() {
                     <button
                         type="submit"
                         disabled={status === 'loading'}
-                        className="w-full py-4 px-6 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white font-bold rounded-xl shadow-lg hover:shadow-blue-500/25 transition-all duration-300 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed transform hover:-translate-y-0.5 active:translate-y-0"
+                        className="w-full py-2.5 px-4 bg-[#2f81f7] hover:bg-[#1a6de8] text-white font-medium rounded-lg transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
                     >
                         {status === 'loading' ? (
                             <>
-                                <Loader2 className="w-5 h-5 animate-spin" /> Dispatching...
+                                <Loader2 className="w-4 h-4 animate-spin" /> Dispatching...
                             </>
                         ) : (
                             'Initiate Call'
@@ -123,7 +121,7 @@ export default function CallDispatcher() {
                     </button>
 
                     {message && (
-                        <div className={`p-4 rounded-xl text-sm text-center border animate-in fade-in slide-in-from-bottom-2 ${status === 'success' ? 'bg-green-500/10 text-green-200 border-green-500/20' : 'bg-red-500/10 text-red-200 border-red-500/20'}`}>
+                        <div className={`p-3 rounded-lg text-sm flex items-center gap-2 border ${status === 'success' ? 'bg-[#2ea043]/10 text-[#2ea043] border-[#2ea043]/20' : 'bg-[#da3633]/10 text-[#da3633] border-[#da3633]/20'}`}>
                             {message}
                         </div>
                     )}
