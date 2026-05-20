@@ -1,5 +1,5 @@
 import { getCallLogs } from "@/lib/actions";
-import { Activity, Play, Volume2 } from "lucide-react";
+import { Activity, Play, Clock } from "lucide-react";
 import Link from "next/link";
 import path from "path";
 
@@ -106,9 +106,9 @@ export default async function LogsPage() {
                         {hasRecording ? (
                           <Link
                             href={`/logs/${log.id}`}
-                            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-blue-600 dark:text-[#2f81f7] bg-blue-50 dark:bg-[#2f81f7]/10 border border-blue-200 dark:border-[#2f81f7]/20 rounded-md hover:bg-blue-100 dark:hover:bg-[#2f81f7]/20 transition-colors"
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold text-blue-600 dark:text-[#2f81f7] bg-blue-50 dark:bg-[#2f81f7]/10 border border-blue-200 dark:border-[#2f81f7]/20 rounded-md hover:bg-blue-100 dark:hover:bg-[#2f81f7]/20 transition-colors"
                           >
-                            <Volume2 className="w-3.5 h-3.5" />
+                            <Clock className="w-3.5 h-3.5" />
                             {log.duration ? `${log.duration}s` : "Play"}
                           </Link>
                         ) : (

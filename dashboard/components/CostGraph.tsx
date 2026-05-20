@@ -6,8 +6,8 @@ import { useAppContext } from "./app-provider";
 const CustomTooltipUsage = ({ active, payload, label }: any) => {
   if (active && payload && payload.length) {
     return (
-      <div className="bg-[#1a1c23] p-4 rounded-xl shadow-2xl border border-gray-700 min-w-[160px] z-50 relative">
-        <p className="text-white text-xs font-bold mb-3">{label} 2026</p>
+      <div className="bg-white dark:bg-[#0d1117] p-3 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 min-w-[150px] z-50 relative">
+        <p className="text-gray-800 dark:text-white text-xs font-bold mb-2">{label}</p>
         <div className="space-y-2">
           {payload.map((entry: any, index: number) => (
             <div key={index} className="flex justify-between items-center text-xs">
@@ -15,7 +15,7 @@ const CustomTooltipUsage = ({ active, payload, label }: any) => {
                 <div className="w-2 h-2 rounded-full" style={{ backgroundColor: entry.color }}></div>
                 <span className="text-gray-300">{entry.name}</span>
               </div>
-              <span className="text-white font-bold ml-6">{entry.value}</span>
+              <span className="text-gray-900 dark:text-white font-bold ml-6">{entry.value}</span>
             </div>
           ))}
         </div>
@@ -29,9 +29,9 @@ const CustomTooltipCost = ({ active, payload, label, formatCurrency }: any) => {
   if (active && payload && payload.length) {
     const total = payload.reduce((sum: number, entry: any) => sum + entry.value, 0);
     return (
-      <div className="bg-[#1a1c23] p-4 rounded-xl shadow-2xl border border-gray-700 min-w-[180px] z-50 relative">
-        <p className="text-white text-xs font-bold mb-3">{label} 2026</p>
-        <p className="text-gray-400 text-[10px] font-bold mb-2">Breakdown</p>
+      <div className="bg-white dark:bg-[#0d1117] p-3 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 min-w-[160px] z-50 relative">
+        <p className="text-gray-800 dark:text-white text-xs font-bold mb-2">{label}</p>
+        <p className="text-gray-500 dark:text-gray-400 text-[10px] font-bold mb-2">Breakdown</p>
         <div className="space-y-2 border-b border-gray-700 pb-3 mb-3">
           {payload.map((entry: any, index: number) => (
             <div key={index} className="flex justify-between items-center text-xs">
@@ -39,13 +39,13 @@ const CustomTooltipCost = ({ active, payload, label, formatCurrency }: any) => {
                 <div className="w-2 h-2 rounded-full" style={{ backgroundColor: entry.color }}></div>
                 <span className="text-gray-300">{entry.name}</span>
               </div>
-              <span className="text-white font-bold ml-6">{formatCurrency(entry.value)}</span>
+              <span className="text-gray-900 dark:text-white font-bold ml-6">{formatCurrency(entry.value)}</span>
             </div>
           ))}
         </div>
         <div className="flex justify-between items-center text-xs">
-          <span className="text-white font-bold">Total</span>
-          <span className="text-white font-bold">{formatCurrency(total)}</span>
+          <span className="text-gray-900 dark:text-white font-bold">Total</span>
+          <span className="text-gray-900 dark:text-white font-bold">{formatCurrency(total)}</span>
         </div>
       </div>
     );
@@ -57,9 +57,12 @@ interface CostGraphProps {
   logs?: any[];
   customData?: any[];
   type?: "usage" | "cost" | "inboundOutbound" | "default";
+  brushStartIndex?: number;
+  brushEndIndex?: number;
+  onBrushChange?: (state: any) => void;
 }
 
-export default function CostGraph({ logs, customData, type = "default" }: CostGraphProps) {
+export default function CostGraph({ logs, customData, type = "default", brushStartIndex, brushEndIndex, onBrushChange }: CostGraphProps) {
   const { formatCurrency } = useAppContext();
 
   if (type === "usage" && customData) {
@@ -70,10 +73,20 @@ export default function CostGraph({ logs, customData, type = "default" }: CostGr
           <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: "#6b7280" }} dy={10} />
           <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: "#6b7280" }} dx={-10} />
           <Tooltip content={<CustomTooltipUsage />} cursor={{ stroke: '#6b7280', strokeWidth: 1, strokeDasharray: '5 5' }} />
-          <Area type="monotone" dataKey="totalCalls" name="Total Calls" stroke="#22c55e" strokeWidth={2} fillOpacity={0.1} fill="#22c55e" isAnimationActive={false} />
-          <Area type="monotone" dataKey="sipTrunk" name="SIP Trunk" stroke="#3b82f6" strokeWidth={2} fillOpacity={0.1} fill="#3b82f6" isAnimationActive={false} />
-          <Area type="monotone" dataKey="voiceApi" name="Voice API" stroke="#eab308" strokeWidth={2} fillOpacity={0.1} fill="#eab308" isAnimationActive={false} />
-          <Brush dataKey="date" height={15} stroke="#3b82f6" fill="#f8fafc" travellerWidth={8} />
+          <Area type="monotone" dataKey="totalCalls" name="Total Calls" stroke="#22c55e" strokeWidth={2} fillOpacity={0.1} fill="#22c55e" />
+          <Area type="monotone" dataKey="sipTrunk" name="SIP Trunk" stroke="#3b82f6" strokeWidth={2} fillOpacity={0.1} fill="#3b82f6" />
+          <Area type="monotone" dataKey="voiceApi" name="Voice API" stroke="#eab308" strokeWidth={2} fillOpacity={0.1} fill="#eab308" />
+          <Brush 
+            dataKey="date" 
+            height={15} 
+            stroke="#8b949e" 
+            fill="transparent" 
+            travellerWidth={6} 
+            startIndex={brushStartIndex !== undefined ? brushStartIndex : Math.max(0, customData.length - 7)} 
+            endIndex={brushEndIndex !== undefined ? brushEndIndex : customData.length - 1} 
+            onChange={onBrushChange} 
+            tickFormatter={(idx) => customData?.[idx]?.date?.split(' ')[0] || ''} 
+          />
         </AreaChart>
       </ResponsiveContainer>
     );
@@ -87,12 +100,22 @@ export default function CostGraph({ logs, customData, type = "default" }: CostGr
           <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: "#6b7280" }} dy={10} />
           <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: "#6b7280" }} tickFormatter={(value) => formatCurrency(value)} dx={-10} />
           <Tooltip content={<CustomTooltipCost formatCurrency={formatCurrency} />} cursor={{ stroke: '#6b7280', strokeWidth: 1, strokeDasharray: '5 5' }} />
-          <Area type="monotone" dataKey="cdr" name="CDR" stackId="1" stroke="#3b82f6" strokeWidth={2} fillOpacity={0.3} fill="#3b82f6" isAnimationActive={false} />
-          <Area type="monotone" dataKey="recording" name="Recording" stackId="1" stroke="#fb923c" strokeWidth={2} fillOpacity={0.3} fill="#fb923c" isAnimationActive={false} />
-          <Area type="monotone" dataKey="transcription" name="Transcription" stackId="1" stroke="#2dd4bf" strokeWidth={2} fillOpacity={0.3} fill="#2dd4bf" isAnimationActive={false} />
-          <Area type="monotone" dataKey="ncc" name="Ncc" stackId="1" stroke="#f87171" strokeWidth={2} fillOpacity={0.3} fill="#f87171" isAnimationActive={false} />
-          <Area type="monotone" dataKey="didPurchase" name="DID Purchase" stackId="1" stroke="#c084fc" strokeWidth={2} fillOpacity={0.3} fill="#c084fc" isAnimationActive={false} />
-          <Brush dataKey="date" height={15} stroke="#a855f7" fill="#f8fafc" travellerWidth={8} />
+          <Area type="monotone" dataKey="cdr" name="CDR" stackId="1" stroke="#3b82f6" strokeWidth={2} fillOpacity={0.3} fill="#3b82f6" />
+          <Area type="monotone" dataKey="recording" name="Recording" stackId="1" stroke="#fb923c" strokeWidth={2} fillOpacity={0.3} fill="#fb923c" />
+          <Area type="monotone" dataKey="transcription" name="Transcription" stackId="1" stroke="#2dd4bf" strokeWidth={2} fillOpacity={0.3} fill="#2dd4bf" />
+          <Area type="monotone" dataKey="ncc" name="Ncc" stackId="1" stroke="#f87171" strokeWidth={2} fillOpacity={0.3} fill="#f87171" />
+          <Area type="monotone" dataKey="didPurchase" name="DID Purchase" stackId="1" stroke="#c084fc" strokeWidth={2} fillOpacity={0.3} fill="#c084fc" />
+          <Brush 
+            dataKey="date" 
+            height={15} 
+            stroke="#8b949e" 
+            fill="transparent" 
+            travellerWidth={6} 
+            startIndex={brushStartIndex !== undefined ? brushStartIndex : Math.max(0, customData.length - 7)} 
+            endIndex={brushEndIndex !== undefined ? brushEndIndex : customData.length - 1} 
+            onChange={onBrushChange} 
+            tickFormatter={(idx) => customData?.[idx]?.date?.split(' ')[0] || ''} 
+          />
         </AreaChart>
       </ResponsiveContainer>
     );
@@ -122,9 +145,19 @@ export default function CostGraph({ logs, customData, type = "default" }: CostGr
             labelStyle={{ fontSize: "10px", color: "#6b7280", marginBottom: "4px" }}
             cursor={{ fill: 'transparent' }}
           />
-          <Bar dataKey="inbound" name="Inbound" stackId="a" fill="#22c55e" radius={[0, 0, 0, 0]} isAnimationActive={false} />
-          <Bar dataKey="outbound" name="Outbound" stackId="a" fill="#f97316" radius={[4, 4, 0, 0]} isAnimationActive={false} />
-          <Brush dataKey="date" height={15} stroke="#6b7280" fill="#f8fafc" travellerWidth={8} />
+          <Bar dataKey="inbound" name="Inbound" stackId="a" fill="#22c55e" radius={[0, 0, 0, 0]} />
+          <Bar dataKey="outbound" name="Outbound" stackId="a" fill="#f97316" radius={[4, 4, 0, 0]} />
+          <Brush 
+            dataKey="date" 
+            height={15} 
+            stroke="#8b949e" 
+            fill="transparent" 
+            travellerWidth={6} 
+            startIndex={brushStartIndex !== undefined ? brushStartIndex : Math.max(0, customData.length - 7)} 
+            endIndex={brushEndIndex !== undefined ? brushEndIndex : customData.length - 1} 
+            onChange={onBrushChange} 
+            tickFormatter={(idx) => customData?.[idx]?.date?.split(' ')[0] || ''} 
+          />
         </BarChart>
       </ResponsiveContainer>
     );

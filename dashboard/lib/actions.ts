@@ -41,9 +41,10 @@ export async function getCallLogs() {
       analysisCache = JSON.parse(fs.readFileSync(ANALYSIS_CACHE_FILE, "utf-8"));
     }
     
-    // 2. Fetch Vobiz CDRs (for accurate Duration, Cost, MOS, Jitter)
+    // 2. Fetch Vobiz CDRs, Transcripts, and Recordings
     let vobizCdrs: any[] = [];
     let vobizTranscripts: any[] = [];
+    let vobizRecordings: any[] = [];
     
     if (authId && authToken && authId !== "your_auth_id_here") {
       const headers = {
@@ -53,45 +54,11 @@ export async function getCallLogs() {
       };
       
       try {
-        const [cdr1Res, transRes] = await Promise.all([
-          fetch(`https://api.vobiz.ai/api/v1/Account/${authId}/cdr/recent?limit=100&offset=0`, {
-            headers, next: { revalidate: 60 }
-          }),
-          fetch(`https://api.vobiz.ai/api/v1/Account/${authId}/Transcriptions/?limit=100&offset=0`, {
-            headers, next: { revalidate: 60 }
-          }).catch(e => null) // Ignore transcription failure
+        [vobizCdrs, vobizTranscripts, vobizRecordings] = await Promise.all([
+          fetchAllVobizCdrs(authId, headers),
+          fetchAllVobizTranscripts(authId, headers),
+          fetchAllVobizRecordings(authId, headers)
         ]);
-        
-        if (cdr1Res.ok) {
-          const c1 = await cdr1Res.json();
-          if (c1.success && c1.data) {
-            vobizCdrs.push(...c1.data);
-            
-            // Paginate CDRs if more exist
-            const total = c1?.meta?.total_count ?? c1?.total ?? 0;
-            if (total > 100) {
-              const extraPages = Math.ceil((total - 100) / 100);
-              const pagePromises = Array.from({ length: extraPages }, (_, i) =>
-                fetch(`https://api.vobiz.ai/api/v1/Account/${authId}/cdr/recent?limit=100&offset=${(i + 1) * 100}`, { headers, next: { revalidate: 60 } })
-                  .then(r => r.ok ? r.json() : null)
-                  .catch(() => null)
-              );
-              const extraResults = await Promise.all(pagePromises);
-              extraResults.forEach(result => {
-                if (result && result.data) {
-                  vobizCdrs.push(...result.data);
-                }
-              });
-            }
-          }
-        }
-        
-        if (transRes && transRes.ok) {
-          const tData = await transRes.json();
-          if (tData.objects) {
-            vobizTranscripts = tData.objects;
-          }
-        }
       } catch (err) {
         console.error("Failed to fetch Vobiz data:", err);
       }
@@ -111,17 +78,22 @@ export async function getCallLogs() {
         log.phone_number?.replace("+", "") === normalizedCaller
       );
       
-      // Find matching Vobiz Transcript
+      // Find matching Vobiz Transcript and Recording
       const vobizTranscript = vobizTranscripts.find((t: any) => t.call_uuid === cdr.sip_call_id);
+      const vobizRecording = vobizRecordings.find((r: any) => r.call_uuid === cdr.sip_call_id);
 
       // We use the local match for transcript/sentiment if it exists, otherwise fallback to Vobiz
       const transcriptStr = localMatch?.transcript || vobizTranscript?.transcription_text || "";
       
       // Use cached Groq analysis if available
       const cachedAnalysis = analysisCache[cdr.uuid] || analysisCache[cdr.sip_call_id];
-      const sentimentStr = cachedAnalysis?.sentiment || localMatch?.sentiment || vobizTranscript?.sentiment || "Neutral";
+      const sentimentStr = cachedAnalysis?.sentiment || localMatch?.sentiment || (vobizTranscript?.sentiment ? parseVobizSentiment(vobizTranscript.sentiment) : "Neutral");
       const summaryStr = cachedAnalysis?.short_summary || localMatch?.summary || vobizTranscript?.summary || "Summary generated locally or missing.";
       const intentStr = cachedAnalysis?.lead_info?.intent || "";
+      
+      const parsedTransCost = vobizTranscript?.transcription_cost != null ? parseFloat(vobizTranscript.transcription_cost) : 0;
+      const parsedRecRate = vobizRecording?.recording_storage_rate != null ? parseFloat(vobizRecording.recording_storage_rate) : 0;
+      const parsedRecDur = vobizRecording?.recording_storage_duration != null ? parseFloat(vobizRecording.recording_storage_duration) : 0;
       
       mergedLogs.push({
         ...localMatch, // Inherit local fields
@@ -138,8 +110,8 @@ export async function getCallLogs() {
         duration: cdr.duration,
         mos: cdr.mos || 4.2,
         cost: cdr.total_cost != null ? parseFloat(cdr.total_cost) : 0,
-        recording_cost: cdr.recording_cost != null ? parseFloat(cdr.recording_cost) : 0,
-        transcription_cost: cdr.transcription_cost != null ? parseFloat(cdr.transcription_cost) : 0,
+        recording_cost: (parsedRecRate * parsedRecDur) || (cdr.recording_cost != null ? parseFloat(cdr.recording_cost) : 0),
+        transcription_cost: parsedTransCost || (cdr.transcription_cost != null ? parseFloat(cdr.transcription_cost) : 0),
         ncc_cost: cdr.ncc_cost != null ? parseFloat(cdr.ncc_cost) : 0,
         did_cost: cdr.did_cost != null ? parseFloat(cdr.did_cost) : 0,
         status: cdr.hangup_cause_name || "Completed",
@@ -239,7 +211,7 @@ export async function getOverviewStats() {
   const sipTrunkCalls = logs.filter((l: any) => l.sip_call_id).length || totalCalls;
   const voiceApiCalls = totalCalls - sipTrunkCalls;
   
-  // Calculate chart data for last 7 days
+  // Calculate chart data for last 30 days
   const today = new Date();
   const getDayStr = (d: Date) => d.toISOString().split('T')[0];
   const shortDate = (d: string) => {
@@ -251,7 +223,7 @@ export async function getOverviewStats() {
   const costChartData = [];
   const inboundOutboundData = [];
   
-  for(let i=6; i>=0; i--) {
+  for(let i=29; i>=0; i--) {
     const d = new Date();
     d.setDate(today.getDate() - i);
     const dateStr = getDayStr(d);
@@ -295,6 +267,64 @@ export async function getOverviewStats() {
     });
   }
   
+  // Calculate chart data for last 24 hours
+  const hourlyUsageData = [];
+  const hourlyCostData = [];
+  const hourlyInboundOutboundData = [];
+  
+  const getHourStr = (d: Date) => {
+    return `${d.toISOString().split('T')[0]}T${d.getHours().toString().padStart(2, '0')}`;
+  };
+  const shortHourDate = (d: string) => {
+    const [datePart, hourPart] = d.split('T');
+    const date = new Date(datePart);
+    return `${date.toLocaleDateString('en-US', { day: '2-digit', month: 'short' })} ${hourPart}:00`;
+  };
+
+  for(let i=23; i>=0; i--) {
+    const d = new Date();
+    d.setHours(today.getHours() - i);
+    const hourStr = getHourStr(d);
+    const displayHour = shortHourDate(hourStr);
+    
+    const hourLogs = logs.filter((l: any) => {
+      try {
+        return getHourStr(new Date(l.timestamp)) === hourStr;
+      } catch (e) {
+        return false;
+      }
+    });
+    
+    const hourCost = hourLogs.reduce((acc: number, l: any) => {
+      const raw = l.cost;
+      if (typeof raw === 'number') return acc + raw;
+      const costStr = typeof raw === 'string' ? raw.replace(/[^0-9.-]/g, '') : '0';
+      return acc + (parseFloat(costStr) || 0);
+    }, 0);
+    
+    const hRecording = hourLogs.reduce((acc: number, l: any) => acc + (l.recording_cost || 0), 0);
+    const hTranscription = hourLogs.reduce((acc: number, l: any) => acc + (l.transcription_cost || 0), 0);
+    const hNcc = hourLogs.reduce((acc: number, l: any) => acc + (l.ncc_cost || 0), 0);
+    const hDid = hourLogs.reduce((acc: number, l: any) => acc + (l.did_cost || 0), 0);
+    
+    hourlyUsageData.push({ date: displayHour, totalCalls: hourLogs.length, sipTrunk: hourLogs.length, voiceApi: 0 });
+    hourlyCostData.push({ 
+      date: displayHour, 
+      cdr: hourCost, 
+      recording: hRecording, 
+      transcription: hTranscription, 
+      ncc: hNcc, 
+      didPurchase: hDid 
+    });
+    
+    const inbound = hourLogs.filter((l: any) => l.direction === "inbound").length;
+    hourlyInboundOutboundData.push({
+      date: displayHour,
+      inbound: inbound,
+      outbound: hourLogs.length - inbound
+    });
+  }
+  
   const activeNumbers = new Set(
     logs.filter((l: any) => l.direction === "inbound" && l.phone_number)
         .map((l: any) => l.phone_number)
@@ -312,7 +342,10 @@ export async function getOverviewStats() {
     activeNumbers,
     usageChartData,
     costChartData,
-    inboundOutboundData
+    inboundOutboundData,
+    hourlyUsageData,
+    hourlyCostData,
+    hourlyInboundOutboundData
   };
 }
 
@@ -424,47 +457,25 @@ export async function getWalletData(): Promise<WalletData> {
 
   try {
     // ── 1. Fetch account balance + first billing page + CDRs in parallel
-    const [accountRes, billing1Res, cdrRes] = await Promise.all([
-      fetch(`https://api.vobiz.ai/api/v1/Account/${authId}/`, { headers, next: { revalidate: 60 } }).catch(() => null),
-      fetch(`https://api.vobiz.ai/api/v1/Account/${authId}/Billing/?limit=100&offset=0`, { headers, next: { revalidate: 60 } }).catch(() => null),
-      fetch(`https://api.vobiz.ai/api/v1/Account/${authId}/cdr/recent?limit=500`, { headers, next: { revalidate: 60 } }).catch(() => null),
+    const accountResPromise = fetch(`https://api.vobiz.ai/api/v1/Account/${authId}/`, { headers, next: { revalidate: 60 } }).catch(() => null);
+    
+    // We run the pagination helpers concurrently for faster loading
+    const [accountRes, allBillingItems, cdrs] = await Promise.all([
+      accountResPromise,
+      fetchAllVobizBilling(authId, headers),
+      fetchAllVobizCdrs(authId, headers)
     ]);
 
     // ── 2. Balance
     let balance = 0;
     let currency = 'INR';
-    if (accountRes?.ok) {
+    if (accountRes && accountRes.ok) {
       const acct = await accountRes.json();
       balance = parseFloat(acct?.cash_credits ?? acct?.credit ?? acct?.balance ?? 0);
       currency = acct?.currency ?? 'INR';
     }
 
-    // ── 3. Billing ledger — paginate through ALL pages
-    let allBillingItems: any[] = [];
-    if (billing1Res?.ok) {
-      const b1 = await billing1Res.json();
-      const page1Items: any[] = b1?.objects ?? b1?.data ?? b1?.results ?? [];
-      allBillingItems.push(...page1Items);
-
-      // Paginate if there are more
-      const total = b1?.meta?.total_count ?? b1?.total ?? 0;
-      if (total > 100) {
-        const extraPages = Math.ceil((total - 100) / 100);
-        const pagePromises = Array.from({ length: extraPages }, (_, i) =>
-          fetch(`https://api.vobiz.ai/api/v1/Account/${authId}/Billing/?limit=100&offset=${(i + 1) * 100}`, { headers, next: { revalidate: 60 } })
-            .then(r => r.ok ? r.json() : null)
-            .catch(() => null)
-        );
-        const extraResults = await Promise.all(pagePromises);
-        extraResults.forEach(result => {
-          if (result) {
-            allBillingItems.push(...(result?.objects ?? result?.data ?? result?.results ?? []));
-          }
-        });
-      }
-    }
-
-    // ── 4. Parse billing ledger into typed transactions
+    // ── 3. Parse billing ledger into typed transactions
     let transactions: WalletTransaction[] = allBillingItems.map((item: any, idx: number) => ({
       id: item.id ?? item.uuid ?? String(idx),
       description: item.description ?? item.description_text ?? item.memo ?? 'Charge',
@@ -472,13 +483,6 @@ export async function getWalletData(): Promise<WalletData> {
       type: classifyTransaction(item.description ?? item.description_text ?? item.memo ?? ''),
       timestamp: item.created_at ?? item.date ?? item.timestamp ?? new Date().toISOString(),
     }));
-
-    // ── 5. CDR data for usage metrics + CDR cost fallback
-    let cdrs: any[] = [];
-    if (cdrRes?.ok) {
-      const cData = await cdrRes.json();
-      cdrs = cData?.data ?? cData?.objects ?? cData?.results ?? [];
-    }
 
     // ── 6. If billing ledger returned nothing, build transactions from CDRs only
     //       (CDRs always only contribute to CDR type)
@@ -551,4 +555,149 @@ export async function getWalletData(): Promise<WalletData> {
     console.error('getWalletData error:', err);
     return emptyResult;
   }
+}
+
+// ── Vobiz Pagination Helpers ───────────────────────────────────────────────
+
+async function fetchAllVobizCdrs(authId: string, headers: any): Promise<any[]> {
+  const allCdrs: any[] = [];
+  let offset = 0;
+  let hasMore = true;
+  let pageCount = 0;
+  
+  while (hasMore && pageCount < 20) {
+    try {
+      const res = await fetch(`https://api.vobiz.ai/api/v1/Account/${authId}/cdr/recent?limit=100&offset=${offset}`, { headers, next: { revalidate: 60 } });
+      if (res.ok) {
+        const json = await res.json();
+        if (json?.success && json?.data && json.data.length > 0) {
+          allCdrs.push(...json.data);
+          offset += json.data.length;
+          pageCount++;
+          if (json.data.length < 100) hasMore = false;
+        } else {
+          hasMore = false;
+        }
+      } else {
+        hasMore = false;
+      }
+    } catch (e) {
+      console.error("Error fetching Vobiz CDRs page:", e);
+      hasMore = false;
+    }
+  }
+  return allCdrs;
+}
+
+async function fetchAllVobizTranscripts(authId: string, headers: any): Promise<any[]> {
+  const allTranscripts: any[] = [];
+  let offset = 0;
+  let hasMore = true;
+  let pageCount = 0;
+  
+  while (hasMore && pageCount < 20) {
+    try {
+      const res = await fetch(`https://api.vobiz.ai/api/v1/Account/${authId}/Transcriptions/?limit=100&offset=${offset}`, { headers, next: { revalidate: 60 } });
+      if (res.ok) {
+        const json = await res.json();
+        const items = json?.objects ?? json?.data ?? json?.results ?? [];
+        if (items.length > 0) {
+          allTranscripts.push(...items);
+          offset += items.length;
+          pageCount++;
+          if (items.length < 100) hasMore = false;
+        } else {
+          hasMore = false;
+        }
+      } else {
+        hasMore = false;
+      }
+    } catch (e) {
+      console.error("Error fetching Vobiz Transcripts page:", e);
+      hasMore = false;
+    }
+  }
+  return allTranscripts;
+}
+
+async function fetchAllVobizRecordings(authId: string, headers: any): Promise<any[]> {
+  const allRecordings: any[] = [];
+  let offset = 0;
+  let hasMore = true;
+  let pageCount = 0;
+  
+  while (hasMore && pageCount < 20) {
+    try {
+      const res = await fetch(`https://api.vobiz.ai/api/v1/Account/${authId}/Recording/?limit=100&offset=${offset}`, { headers, next: { revalidate: 60 } });
+      if (res.ok) {
+        const json = await res.json();
+        const items = json?.objects ?? json?.data ?? json?.results ?? [];
+        if (items.length > 0) {
+          allRecordings.push(...items);
+          offset += items.length;
+          pageCount++;
+          if (items.length < 100) hasMore = false;
+        } else {
+          hasMore = false;
+        }
+      } else {
+        hasMore = false;
+      }
+    } catch (e) {
+      console.error("Error fetching Vobiz Recordings page:", e);
+      hasMore = false;
+    }
+  }
+  return allRecordings;
+}
+
+async function fetchAllVobizBilling(authId: string, headers: any): Promise<any[]> {
+  const allBilling: any[] = [];
+  let offset = 0;
+  let hasMore = true;
+  let pageCount = 0;
+  
+  while (hasMore && pageCount < 20) {
+    try {
+      const res = await fetch(`https://api.vobiz.ai/api/v1/Account/${authId}/Billing/?limit=100&offset=${offset}`, { headers, next: { revalidate: 60 } });
+      if (res.ok) {
+        const json = await res.json();
+        const items = json?.objects ?? json?.data ?? json?.results ?? [];
+        if (items.length > 0) {
+          allBilling.push(...items);
+          offset += items.length;
+          pageCount++;
+          if (items.length < 100) hasMore = false;
+        } else {
+          hasMore = false;
+        }
+      } else {
+        hasMore = false;
+      }
+    } catch (e) {
+      console.error("Error fetching Vobiz Billing page:", e);
+      hasMore = false;
+    }
+  }
+  return allBilling;
+}
+
+function parseVobizSentiment(sentiment: any): string {
+  if (typeof sentiment !== "string") return "Neutral";
+  const s = sentiment.trim();
+  if (s.toLowerCase() === "positive" || s.toLowerCase() === "negative" || s.toLowerCase() === "neutral") {
+    return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
+  }
+  // Try to parse "CUSTOMER:2.9, AGENT:3.0"
+  const customerMatch = s.match(/CUSTOMER:\s*([0-9.]+)/i);
+  const agentMatch = s.match(/AGENT:\s*([0-9.]+)/i);
+  if (customerMatch) {
+    const custScore = parseFloat(customerMatch[1]);
+    const agentScore = agentMatch ? parseFloat(agentMatch[1]) : custScore;
+    const avgScore = (custScore + agentScore) / 2;
+    if (avgScore >= 3.5) return "Positive";
+    if (avgScore <= 2.5) return "Negative";
+    return "Neutral";
+  }
+  return "Neutral";
 }

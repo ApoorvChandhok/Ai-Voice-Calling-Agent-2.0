@@ -1,0 +1,763 @@
+"use client";
+
+import React, { useState, useEffect, useCallback, useRef } from "react";
+import {
+  Bot, Save, RotateCcw, Plus, Trash2, Link2, FileText, Upload,
+  Mic, Volume2, Brain, Wrench, Phone, ChevronDown, ChevronUp,
+  CheckCircle, AlertCircle, Loader2, Sparkles, Globe, Settings2,
+  MessageSquare, Zap, X
+} from "lucide-react";
+
+// ─── Types ─────────────────────────────────────────────────────────────────────
+interface Resource {
+  type: "url" | "text" | "file";
+  name: string;
+  value: string;
+}
+
+interface CustomFunction {
+  name: string;
+  description: string;
+  enabled: boolean;
+}
+
+interface AgentConfig {
+  agent_name: string;
+  call_description: string;
+  system_prompt: string;
+  initial_greeting: string;
+  fallback_greeting: string;
+  stt_provider: string;
+  stt_model: string;
+  stt_language: string;
+  tts_provider: string;
+  tts_voice: string;
+  tts_language: string;
+  llm_provider: string;
+  llm_model: string;
+  llm_temperature: number;
+  transfer_number: string;
+  resources: Resource[];
+  custom_functions: CustomFunction[];
+}
+
+// ─── Voice/Model Options ────────────────────────────────────────────────────────
+const TTS_PROVIDERS = [
+  { value: "sarvam", label: "Sarvam AI (Indian Voices)" },
+  { value: "cartesia", label: "Cartesia (Sonic 2)" },
+  { value: "deepgram", label: "Deepgram" },
+  { value: "openai", label: "OpenAI TTS" },
+];
+
+const TTS_VOICES: Record<string, { value: string; label: string }[]> = {
+  sarvam: [
+    { value: "anushka", label: "Anushka (Female)" },
+    { value: "aravind", label: "Aravind (Male)" },
+    { value: "amartya", label: "Amartya (Male)" },
+    { value: "dhruv", label: "Dhruv (Male)" },
+    { value: "ishita", label: "Ishita (Female)" },
+  ],
+  cartesia: [
+    { value: "f786b574-daa5-4673-aa0c-cbe3e8534c02", label: "Default Voice" },
+  ],
+  deepgram: [
+    { value: "aura-asteria-en", label: "Asteria (English)" },
+  ],
+  openai: [
+    { value: "alloy", label: "Alloy" },
+    { value: "echo", label: "Echo" },
+    { value: "shimmer", label: "Shimmer" },
+    { value: "nova", label: "Nova" },
+    { value: "fable", label: "Fable" },
+    { value: "onyx", label: "Onyx" },
+  ],
+};
+
+const TTS_LANGUAGES = [
+  { value: "en-IN", label: "English (India)" },
+  { value: "hi-IN", label: "Hindi (India)" },
+  { value: "en-US", label: "English (US)" },
+  { value: "en-GB", label: "English (UK)" },
+  { value: "ta-IN", label: "Tamil (India)" },
+  { value: "te-IN", label: "Telugu (India)" },
+  { value: "bn-IN", label: "Bengali (India)" },
+  { value: "kn-IN", label: "Kannada (India)" },
+  { value: "ml-IN", label: "Malayalam (India)" },
+  { value: "mr-IN", label: "Marathi (India)" },
+  { value: "gu-IN", label: "Gujarati (India)" },
+];
+
+const LLM_PROVIDERS = [
+  { value: "groq", label: "Groq (Fast Inference)" },
+  { value: "openai", label: "OpenAI" },
+];
+
+const STT_MODELS = [
+  { value: "nova-2", label: "Nova 2 (Balanced)" },
+  { value: "nova-3", label: "Nova 3 (Newest)" },
+];
+
+// ─── Section Wrapper ────────────────────────────────────────────────────────────
+function Section({ icon: Icon, title, subtitle, children, defaultOpen = true, accentColor = "blue" }: {
+  icon: React.ElementType;
+  title: string;
+  subtitle?: string;
+  children: React.ReactNode;
+  defaultOpen?: boolean;
+  accentColor?: string;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+
+  const colors: Record<string, string> = {
+    blue: "text-blue-500 dark:text-[#2f81f7] bg-blue-50 dark:bg-[#2f81f7]/10",
+    purple: "text-purple-500 dark:text-[#a371f7] bg-purple-50 dark:bg-[#a371f7]/10",
+    green: "text-green-500 dark:text-[#2ea043] bg-green-50 dark:bg-[#2ea043]/10",
+    orange: "text-orange-500 dark:text-[#fb8f24] bg-orange-50 dark:bg-[#fb8f24]/10",
+    cyan: "text-cyan-500 dark:text-[#39d2c0] bg-cyan-50 dark:bg-[#39d2c0]/10",
+    pink: "text-pink-500 dark:text-[#f778ba] bg-pink-50 dark:bg-[#f778ba]/10",
+    yellow: "text-yellow-600 dark:text-[#d29922] bg-yellow-50 dark:bg-[#d29922]/10",
+  };
+
+  return (
+    <div className="bg-white dark:bg-[#161b22] rounded-xl border border-gray-200 dark:border-[#30363d] shadow-sm overflow-hidden transition-colors duration-200">
+      <button
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center gap-3 p-5 text-left hover:bg-gray-50 dark:hover:bg-[#1c2128] transition-colors"
+      >
+        <div className={`p-2 rounded-lg ${colors[accentColor] || colors.blue}`}>
+          <Icon className="w-4 h-4" />
+        </div>
+        <div className="flex-1">
+          <h3 className="font-semibold text-gray-900 dark:text-[#e6edf3] text-sm">{title}</h3>
+          {subtitle && <p className="text-xs text-gray-500 dark:text-[#8b949e] mt-0.5">{subtitle}</p>}
+        </div>
+        {open ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
+      </button>
+      {open && (
+        <div className="px-5 pb-5 space-y-4 border-t border-gray-100 dark:border-[#30363d]/50 pt-4 animate-in fade-in duration-200">
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Form Field Helpers ─────────────────────────────────────────────────────────
+function Label({ children, htmlFor }: { children: React.ReactNode; htmlFor?: string }) {
+  return (
+    <label htmlFor={htmlFor} className="block text-xs font-semibold text-gray-700 dark:text-[#8b949e] uppercase tracking-wider mb-1.5">
+      {children}
+    </label>
+  );
+}
+
+function TextInput({ id, value, onChange, placeholder, type = "text" }: {
+  id: string; value: string; onChange: (v: string) => void; placeholder?: string; type?: string;
+}) {
+  return (
+    <input
+      id={id}
+      type={type}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder={placeholder}
+      className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-[#30363d] bg-gray-50 dark:bg-[#0d1117] text-gray-900 dark:text-[#e6edf3] text-sm focus:outline-none focus:ring-2 focus:ring-[#2f81f7]/40 focus:border-[#2f81f7] transition-all placeholder:text-gray-400 dark:placeholder:text-[#484f58]"
+    />
+  );
+}
+
+function TextArea({ id, value, onChange, placeholder, rows = 3 }: {
+  id: string; value: string; onChange: (v: string) => void; placeholder?: string; rows?: number;
+}) {
+  return (
+    <textarea
+      id={id}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder={placeholder}
+      rows={rows}
+      className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-[#30363d] bg-gray-50 dark:bg-[#0d1117] text-gray-900 dark:text-[#e6edf3] text-sm focus:outline-none focus:ring-2 focus:ring-[#2f81f7]/40 focus:border-[#2f81f7] transition-all font-mono leading-relaxed resize-y placeholder:text-gray-400 dark:placeholder:text-[#484f58]"
+    />
+  );
+}
+
+function Select({ id, value, onChange, options }: {
+  id: string; value: string; onChange: (v: string) => void;
+  options: { value: string; label: string }[];
+}) {
+  return (
+    <select
+      id={id}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-[#30363d] bg-gray-50 dark:bg-[#0d1117] text-gray-900 dark:text-[#e6edf3] text-sm focus:outline-none focus:ring-2 focus:ring-[#2f81f7]/40 focus:border-[#2f81f7] transition-all cursor-pointer"
+    >
+      {options.map((opt) => (
+        <option key={opt.value} value={opt.value}>{opt.label}</option>
+      ))}
+    </select>
+  );
+}
+
+// ─── Main Component ─────────────────────────────────────────────────────────────
+export default function AgentConfigForm({ mode }: { mode: "inbound" | "outbound" }) {
+  const [config, setConfig] = useState<AgentConfig | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [toast, setToast] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [isDirty, setIsDirty] = useState(false);
+
+  // Resource add form state
+  const [newResourceType, setNewResourceType] = useState<"url" | "text">("url");
+  const [newResourceName, setNewResourceName] = useState("");
+  const [newResourceValue, setNewResourceValue] = useState("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Load config
+  useEffect(() => {
+    setLoading(true);
+    fetch(`/api/agent-config?mode=${mode}`)
+      .then((r) => r.json())
+      .then((data) => {
+        setConfig(data.config);
+        setIsDirty(false);
+      })
+      .catch((e) => {
+        showToast("error", "Failed to load configuration");
+        console.error(e);
+      })
+      .finally(() => setLoading(false));
+  }, [mode]);
+
+  // Helpers
+  const showToast = (type: "success" | "error", message: string) => {
+    setToast({ type, message });
+    setTimeout(() => setToast(null), 4000);
+  };
+
+  const update = useCallback(<K extends keyof AgentConfig>(key: K, value: AgentConfig[K]) => {
+    setConfig((prev) => prev ? { ...prev, [key]: value } : prev);
+    setIsDirty(true);
+  }, []);
+
+  // Save
+  const handleSave = async () => {
+    if (!config) return;
+    setSaving(true);
+    try {
+      const res = await fetch("/api/agent-config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode, config }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error);
+      showToast("success", "Configuration saved! Changes will apply on the next call.");
+      setIsDirty(false);
+    } catch (e: any) {
+      showToast("error", `Save failed: ${e.message}`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Reset to defaults
+  const handleReset = async () => {
+    setLoading(true);
+    try {
+      // Delete the stored config for this mode, re-fetch defaults
+      const stored = await fetch(`/api/agent-config?mode=${mode}`).then(r => r.json());
+      // Fetch fresh defaults by temporarily removing stored config
+      const res = await fetch("/api/agent-config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode, config: null }),
+      });
+      // Re-fetch
+      const fresh = await fetch(`/api/agent-config?mode=${mode}`).then(r => r.json());
+      setConfig(fresh.config);
+      setIsDirty(false);
+      showToast("success", "Configuration reset to defaults.");
+    } catch (e: any) {
+      showToast("error", `Reset failed: ${e.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Resource management
+  const addResource = () => {
+    if (!config || !newResourceName.trim() || !newResourceValue.trim()) return;
+    const resources = [...config.resources, { type: newResourceType, name: newResourceName.trim(), value: newResourceValue.trim() }];
+    update("resources", resources);
+    setNewResourceName("");
+    setNewResourceValue("");
+  };
+
+  const removeResource = (idx: number) => {
+    if (!config) return;
+    const resources = config.resources.filter((_, i) => i !== idx);
+    update("resources", resources);
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !config) return;
+    setUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("mode", mode);
+      formData.append("file", file);
+      const res = await fetch("/api/agent-config/upload", { method: "POST", body: formData });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      const resources = [...config.resources, data.resource as Resource];
+      update("resources", resources);
+      showToast("success", `File "${file.name}" uploaded successfully.`);
+    } catch (e: any) {
+      showToast("error", `Upload failed: ${e.message}`);
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  // Toggle function tool
+  const toggleFunction = (idx: number) => {
+    if (!config) return;
+    const fns = [...config.custom_functions];
+    fns[idx] = { ...fns[idx], enabled: !fns[idx].enabled };
+    update("custom_functions", fns);
+  };
+
+  if (loading || !config) {
+    return (
+      <div className="flex items-center justify-center h-96">
+        <Loader2 className="w-8 h-8 text-[#2f81f7] animate-spin" />
+      </div>
+    );
+  }
+
+  const modeLabel = mode === "inbound" ? "Inbound" : "Outbound";
+  const modeColorClass = mode === "inbound" ? "from-blue-500 to-cyan-500" : "from-purple-500 to-pink-500";
+
+  return (
+    <div className="space-y-5 max-w-4xl mx-auto pb-10 relative">
+      {/* Toast notification */}
+      {toast && (
+        <div className={`fixed top-6 right-6 z-50 flex items-center gap-2.5 px-4 py-3 rounded-lg border shadow-lg text-sm font-medium transition-all animate-in slide-in-from-right duration-300 ${
+          toast.type === "success"
+            ? "bg-green-50 dark:bg-[#2ea043]/10 text-green-700 dark:text-[#2ea043] border-green-200 dark:border-[#2ea043]/30"
+            : "bg-red-50 dark:bg-[#da3633]/10 text-red-700 dark:text-[#da3633] border-red-200 dark:border-[#da3633]/30"
+        }`}>
+          {toast.type === "success" ? <CheckCircle className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
+          {toast.message}
+          <button onClick={() => setToast(null)} className="ml-2 opacity-60 hover:opacity-100"><X className="w-3.5 h-3.5" /></button>
+        </div>
+      )}
+
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-[#e6edf3] flex items-center gap-3">
+            <span className={`inline-block w-2.5 h-2.5 rounded-full bg-gradient-to-br ${modeColorClass}`} />
+            {modeLabel} Agent Configuration
+          </h2>
+          <p className="text-gray-500 dark:text-[#8b949e] text-sm mt-1">
+            Configure your AI voice agent without touching code. Changes apply on the next call.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleReset}
+            className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg border border-gray-200 dark:border-[#30363d] text-gray-600 dark:text-[#8b949e] hover:bg-gray-100 dark:hover:bg-[#21262d] transition-colors"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            Reset
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={saving || !isDirty}
+            className={`inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-lg transition-all shadow-sm ${
+              isDirty
+                ? "bg-[#2f81f7] hover:bg-[#1f6feb] text-white shadow-[0_0_12px_rgba(47,129,247,0.3)]"
+                : "bg-gray-200 dark:bg-[#21262d] text-gray-400 dark:text-[#484f58] cursor-not-allowed"
+            }`}
+          >
+            {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+            {saving ? "Saving..." : "Save Configuration"}
+          </button>
+        </div>
+      </div>
+
+      {/* Section 1: Agent Identity */}
+      <Section icon={Bot} title="Agent Identity" subtitle="Name and purpose of this AI agent" accentColor="blue">
+        <div>
+          <Label htmlFor="agent_name">Agent Name</Label>
+          <TextInput id="agent_name" value={config.agent_name} onChange={(v) => update("agent_name", v)} placeholder="e.g. Sales Advisor" />
+        </div>
+        <div>
+          <Label htmlFor="call_description">What's this call about?</Label>
+          <TextArea
+            id="call_description"
+            value={config.call_description}
+            onChange={(v) => update("call_description", v)}
+            placeholder="Brief description of the agent's purpose and what callers can expect..."
+            rows={2}
+          />
+        </div>
+      </Section>
+
+      {/* Section 2: System Prompt & Greetings */}
+      <Section icon={MessageSquare} title="System Prompt & Greetings" subtitle="The core instructions and personality for the AI" accentColor="purple">
+        <div>
+          <div className="flex items-center justify-between mb-1.5">
+            <Label htmlFor="system_prompt">System Prompt</Label>
+            <span className="text-[10px] text-gray-400 dark:text-[#484f58] font-mono">
+              {config.system_prompt.length} chars
+            </span>
+          </div>
+          <TextArea
+            id="system_prompt"
+            value={config.system_prompt}
+            onChange={(v) => update("system_prompt", v)}
+            placeholder="You are a helpful AI assistant..."
+            rows={16}
+          />
+          <p className="text-[10px] text-gray-400 dark:text-[#484f58] mt-1">
+            This is the main instruction set the LLM follows. Include persona, knowledge, rules, and communication style.
+          </p>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <Label htmlFor="initial_greeting">Initial Greeting Instruction</Label>
+            <TextArea
+              id="initial_greeting"
+              value={config.initial_greeting}
+              onChange={(v) => update("initial_greeting", v)}
+              placeholder="What the agent should say when the call starts..."
+              rows={3}
+            />
+          </div>
+          <div>
+            <Label htmlFor="fallback_greeting">Fallback Greeting</Label>
+            <TextArea
+              id="fallback_greeting"
+              value={config.fallback_greeting}
+              onChange={(v) => update("fallback_greeting", v)}
+              placeholder="Greeting if already connected..."
+              rows={3}
+            />
+          </div>
+        </div>
+      </Section>
+
+      {/* Section 3: Resources / Knowledge Base */}
+      <Section icon={Sparkles} title="Resources & Knowledge Base" subtitle="Add URLs, files, or text content as reference material for the AI" accentColor="cyan">
+        {/* Existing resources */}
+        {config.resources.length > 0 && (
+          <div className="space-y-2">
+            {config.resources.map((res, idx) => (
+              <div
+                key={idx}
+                className="flex items-start gap-3 p-3 rounded-lg bg-gray-50 dark:bg-[#0d1117] border border-gray-100 dark:border-[#30363d]/60 group"
+              >
+                <div className={`p-1.5 rounded-md mt-0.5 ${
+                  res.type === "url" ? "bg-blue-50 dark:bg-[#2f81f7]/10 text-blue-500 dark:text-[#2f81f7]" :
+                  res.type === "file" ? "bg-green-50 dark:bg-[#2ea043]/10 text-green-500 dark:text-[#2ea043]" :
+                  "bg-purple-50 dark:bg-[#a371f7]/10 text-purple-500 dark:text-[#a371f7]"
+                }`}>
+                  {res.type === "url" ? <Globe className="w-3.5 h-3.5" /> :
+                   res.type === "file" ? <FileText className="w-3.5 h-3.5" /> :
+                   <FileText className="w-3.5 h-3.5" />}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-gray-800 dark:text-[#e6edf3] truncate">{res.name}</p>
+                  <p className="text-xs text-gray-400 dark:text-[#484f58] mt-0.5 truncate font-mono">
+                    {res.type === "url" ? res.value : `${res.value.substring(0, 80)}${res.value.length > 80 ? "..." : ""}`}
+                  </p>
+                </div>
+                <span className="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded bg-gray-200 dark:bg-[#30363d] text-gray-500 dark:text-[#8b949e]">
+                  {res.type}
+                </span>
+                <button
+                  onClick={() => removeResource(idx)}
+                  className="p-1 text-gray-300 dark:text-[#484f58] hover:text-red-500 dark:hover:text-[#da3633] opacity-0 group-hover:opacity-100 transition-all"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Add resource */}
+        <div className="border border-dashed border-gray-200 dark:border-[#30363d] rounded-lg p-4 space-y-3">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setNewResourceType("url")}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md border transition-all ${
+                newResourceType === "url"
+                  ? "bg-blue-50 dark:bg-[#2f81f7]/10 text-blue-600 dark:text-[#2f81f7] border-blue-200 dark:border-[#2f81f7]/30"
+                  : "text-gray-500 dark:text-[#8b949e] border-gray-200 dark:border-[#30363d] hover:bg-gray-50 dark:hover:bg-[#21262d]"
+              }`}
+            >
+              <Link2 className="w-3 h-3" />URL
+            </button>
+            <button
+              onClick={() => setNewResourceType("text")}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md border transition-all ${
+                newResourceType === "text"
+                  ? "bg-purple-50 dark:bg-[#a371f7]/10 text-purple-600 dark:text-[#a371f7] border-purple-200 dark:border-[#a371f7]/30"
+                  : "text-gray-500 dark:text-[#8b949e] border-gray-200 dark:border-[#30363d] hover:bg-gray-50 dark:hover:bg-[#21262d]"
+              }`}
+            >
+              <FileText className="w-3 h-3" />Text
+            </button>
+            <div className="border-l border-gray-200 dark:border-[#30363d] h-5 mx-1" />
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleFileUpload}
+              accept=".txt,.md,.csv,.json"
+              className="hidden"
+            />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md border text-gray-500 dark:text-[#8b949e] border-gray-200 dark:border-[#30363d] hover:bg-gray-50 dark:hover:bg-[#21262d] transition-all"
+            >
+              {uploading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Upload className="w-3 h-3" />}
+              Upload File
+            </button>
+          </div>
+          <div>
+            <TextInput
+              id="resource_name"
+              value={newResourceName}
+              onChange={setNewResourceName}
+              placeholder={newResourceType === "url" ? "Resource name (e.g. Product Website)" : "Resource name (e.g. Product FAQ)"}
+            />
+          </div>
+          <div>
+            {newResourceType === "url" ? (
+              <TextInput
+                id="resource_value"
+                value={newResourceValue}
+                onChange={setNewResourceValue}
+                placeholder="https://example.com/product-info"
+                type="url"
+              />
+            ) : (
+              <TextArea
+                id="resource_value"
+                value={newResourceValue}
+                onChange={setNewResourceValue}
+                placeholder="Paste your knowledge base content here..."
+                rows={4}
+              />
+            )}
+          </div>
+          <button
+            onClick={addResource}
+            disabled={!newResourceName.trim() || !newResourceValue.trim()}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md bg-[#2f81f7] text-white hover:bg-[#1f6feb] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <Plus className="w-3 h-3" />
+            Add Resource
+          </button>
+        </div>
+
+        {config.resources.length === 0 && (
+          <p className="text-xs text-gray-400 dark:text-[#484f58] text-center py-2">
+            No resources added yet. Add URLs, text content, or upload files to expand the AI&apos;s knowledge.
+          </p>
+        )}
+      </Section>
+
+      {/* Section 4: Voice & Speech Settings */}
+      <Section icon={Volume2} title="Voice & Speech Settings" subtitle="Text-to-speech and speech-to-text configuration" accentColor="green">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div>
+            <Label htmlFor="tts_provider">TTS Provider</Label>
+            <Select
+              id="tts_provider"
+              value={config.tts_provider}
+              onChange={(v) => {
+                update("tts_provider", v);
+                // Auto-select first voice for the new provider
+                const voices = TTS_VOICES[v] || [];
+                if (voices.length > 0) update("tts_voice", voices[0].value);
+              }}
+              options={TTS_PROVIDERS}
+            />
+          </div>
+          <div>
+            <Label htmlFor="tts_voice">Voice</Label>
+            <Select
+              id="tts_voice"
+              value={config.tts_voice}
+              onChange={(v) => update("tts_voice", v)}
+              options={TTS_VOICES[config.tts_provider] || [{ value: config.tts_voice, label: config.tts_voice }]}
+            />
+          </div>
+          <div>
+            <Label htmlFor="tts_language">Language</Label>
+            <Select
+              id="tts_language"
+              value={config.tts_language}
+              onChange={(v) => update("tts_language", v)}
+              options={TTS_LANGUAGES}
+            />
+          </div>
+        </div>
+        <div className="border-t border-gray-100 dark:border-[#30363d]/50 pt-4">
+          <p className="text-xs font-semibold text-gray-700 dark:text-[#8b949e] uppercase tracking-wider mb-3">Speech-to-Text</p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <Label htmlFor="stt_model">STT Model</Label>
+              <Select
+                id="stt_model"
+                value={config.stt_model}
+                onChange={(v) => update("stt_model", v)}
+                options={STT_MODELS}
+              />
+            </div>
+            <div>
+              <Label htmlFor="stt_language">STT Language</Label>
+              <TextInput
+                id="stt_language"
+                value={config.stt_language}
+                onChange={(v) => update("stt_language", v)}
+                placeholder="en"
+              />
+            </div>
+          </div>
+        </div>
+      </Section>
+
+      {/* Section 5: LLM Settings */}
+      <Section icon={Brain} title="LLM Settings" subtitle="Large language model provider and parameters" accentColor="orange">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <Label htmlFor="llm_provider">LLM Provider</Label>
+            <Select
+              id="llm_provider"
+              value={config.llm_provider}
+              onChange={(v) => update("llm_provider", v)}
+              options={LLM_PROVIDERS}
+            />
+          </div>
+          <div>
+            <Label htmlFor="llm_model">Model</Label>
+            <TextInput
+              id="llm_model"
+              value={config.llm_model}
+              onChange={(v) => update("llm_model", v)}
+              placeholder="llama-3.3-70b-versatile"
+            />
+          </div>
+        </div>
+        <div>
+          <div className="flex items-center justify-between mb-1.5">
+            <Label htmlFor="llm_temperature">Temperature</Label>
+            <span className="text-xs font-mono text-gray-500 dark:text-[#8b949e] bg-gray-100 dark:bg-[#21262d] px-2 py-0.5 rounded">
+              {config.llm_temperature.toFixed(2)}
+            </span>
+          </div>
+          <input
+            id="llm_temperature"
+            type="range"
+            min="0"
+            max="1"
+            step="0.05"
+            value={config.llm_temperature}
+            onChange={(e) => update("llm_temperature", parseFloat(e.target.value))}
+            className="w-full h-2 bg-gray-200 dark:bg-[#30363d] rounded-lg appearance-none cursor-pointer accent-[#2f81f7]"
+          />
+          <div className="flex justify-between text-[10px] text-gray-400 dark:text-[#484f58] mt-1">
+            <span>Precise (0.0)</span>
+            <span>Creative (1.0)</span>
+          </div>
+        </div>
+      </Section>
+
+      {/* Section 6: Functions / Tools */}
+      <Section icon={Wrench} title="Functions & Tools" subtitle="Enable or disable built-in AI agent capabilities" accentColor="yellow">
+        <div className="space-y-2">
+          {config.custom_functions.map((fn, idx) => (
+            <div
+              key={idx}
+              className={`flex items-center gap-3 p-3 rounded-lg border transition-all ${
+                fn.enabled
+                  ? "bg-green-50/50 dark:bg-[#2ea043]/5 border-green-200 dark:border-[#2ea043]/20"
+                  : "bg-gray-50 dark:bg-[#0d1117] border-gray-200 dark:border-[#30363d]"
+              }`}
+            >
+              <button
+                onClick={() => toggleFunction(idx)}
+                className={`relative w-10 h-5 rounded-full transition-colors ${
+                  fn.enabled ? "bg-green-500 dark:bg-[#2ea043]" : "bg-gray-300 dark:bg-[#30363d]"
+                }`}
+              >
+                <span
+                  className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow-sm transition-transform ${
+                    fn.enabled ? "translate-x-5" : "translate-x-0"
+                  }`}
+                />
+              </button>
+              <div className="flex-1">
+                <p className="text-sm font-semibold text-gray-800 dark:text-[#e6edf3] font-mono">{fn.name}</p>
+                <p className="text-xs text-gray-500 dark:text-[#8b949e]">{fn.description}</p>
+              </div>
+              <Zap className={`w-4 h-4 ${fn.enabled ? "text-green-500 dark:text-[#2ea043]" : "text-gray-300 dark:text-[#30363d]"}`} />
+            </div>
+          ))}
+        </div>
+
+        <div className="border-t border-gray-100 dark:border-[#30363d]/50 pt-4">
+          <Label htmlFor="transfer_number">Default Transfer Number</Label>
+          <TextInput
+            id="transfer_number"
+            value={config.transfer_number}
+            onChange={(v) => update("transfer_number", v)}
+            placeholder="+91XXXXXXXXXX"
+            type="tel"
+          />
+          <p className="text-[10px] text-gray-400 dark:text-[#484f58] mt-1">
+            Phone number to transfer calls to when the transfer function is triggered.
+          </p>
+        </div>
+      </Section>
+
+      {/* Sticky save bar */}
+      {isDirty && (
+        <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-gray-200 dark:border-[#30363d] bg-white/90 dark:bg-[#161b22]/90 backdrop-blur-lg py-3 px-8">
+          <div className="max-w-4xl mx-auto flex items-center justify-between">
+            <p className="text-sm text-gray-500 dark:text-[#8b949e] flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse" />
+              You have unsaved changes
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={handleReset}
+                className="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-lg border border-gray-200 dark:border-[#30363d] text-gray-600 dark:text-[#8b949e] hover:bg-gray-100 dark:hover:bg-[#21262d] transition-colors"
+              >
+                <RotateCcw className="w-3 h-3" />
+                Discard
+              </button>
+              <button
+                onClick={handleSave}
+                disabled={saving}
+                className="inline-flex items-center gap-2 px-4 py-1.5 text-sm font-semibold rounded-lg bg-[#2f81f7] hover:bg-[#1f6feb] text-white shadow-[0_0_12px_rgba(47,129,247,0.3)] transition-all"
+              >
+                {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

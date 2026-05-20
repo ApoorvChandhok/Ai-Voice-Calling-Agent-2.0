@@ -1,7 +1,70 @@
 import os
+import json
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# =========================================================================================
+#  Dashboard Config Bridge — loads overrides from data/agent_config.json
+# =========================================================================================
+_CONFIG_FILE = os.path.join(os.path.dirname(__file__), "data", "agent_config.json")
+
+def load_dashboard_config():
+    """Reload config from the dashboard JSON file. Overrides module globals."""
+    global SYSTEM_PROMPT, INITIAL_GREETING, FALLBACK_GREETING
+    global STT_PROVIDER, STT_MODEL, STT_LANGUAGE
+    global DEFAULT_TTS_PROVIDER, DEFAULT_TTS_VOICE, SARVAM_LANGUAGE
+    global DEFAULT_LLM_PROVIDER, GROQ_MODEL, GROQ_TEMPERATURE
+    global DEFAULT_TRANSFER_NUMBER
+
+    try:
+        if not os.path.exists(_CONFIG_FILE):
+            return
+        with open(_CONFIG_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        cfg = data.get("inbound")
+        if not cfg:
+            return
+
+        if cfg.get("system_prompt"):
+            prompt = cfg["system_prompt"]
+            # Append resource content to the prompt
+            resources = cfg.get("resources", [])
+            if resources:
+                prompt += "\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\nADDITIONAL KNOWLEDGE BASE\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                for res in resources:
+                    if res.get("type") == "url":
+                        prompt += f"\nReference URL — {res.get('name', '')}: {res.get('value', '')}"
+                    else:
+                        prompt += f"\n## {res.get('name', 'Resource')}\n{res.get('value', '')}\n"
+            SYSTEM_PROMPT = prompt
+        if cfg.get("initial_greeting"):
+            INITIAL_GREETING = cfg["initial_greeting"]
+        if cfg.get("fallback_greeting"):
+            FALLBACK_GREETING = cfg["fallback_greeting"]
+        if cfg.get("stt_provider"):
+            STT_PROVIDER = cfg["stt_provider"]
+        if cfg.get("stt_model"):
+            STT_MODEL = cfg["stt_model"]
+        if cfg.get("stt_language"):
+            STT_LANGUAGE = cfg["stt_language"]
+        if cfg.get("tts_provider"):
+            DEFAULT_TTS_PROVIDER = cfg["tts_provider"]
+        if cfg.get("tts_voice"):
+            DEFAULT_TTS_VOICE = cfg["tts_voice"]
+        if cfg.get("tts_language"):
+            SARVAM_LANGUAGE = cfg["tts_language"]
+        if cfg.get("llm_provider"):
+            DEFAULT_LLM_PROVIDER = cfg["llm_provider"]
+        if cfg.get("llm_model"):
+            GROQ_MODEL = cfg["llm_model"]
+        if cfg.get("llm_temperature") is not None:
+            GROQ_TEMPERATURE = cfg["llm_temperature"]
+        if cfg.get("transfer_number"):
+            DEFAULT_TRANSFER_NUMBER = cfg["transfer_number"]
+
+    except Exception as e:
+        print(f"[CONFIG] Failed to load dashboard config for inbound: {e}")
 
 # =========================================================================================
 #  🚗 INBOUND CALL CONFIGURATION — Škoda Octavia Advisor
@@ -191,3 +254,6 @@ SIP_DOMAIN = os.getenv("VOBIZ_SIP_DOMAIN")
 
 # Call mode identifier
 CALL_MODE = "inbound"
+
+# Load any dashboard overrides on import
+load_dashboard_config()

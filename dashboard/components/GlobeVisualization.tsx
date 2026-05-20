@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Globe from "react-globe.gl";
 
 export default function GlobeVisualization() {
-  const globeRef = useRef<any>();
+  const globeRef = useRef<any>(null);
   const [dimensions, setDimensions] = useState({ width: 400, height: 400 });
 
   const markers = [

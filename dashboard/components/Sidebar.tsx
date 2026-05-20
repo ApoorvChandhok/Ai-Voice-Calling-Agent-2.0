@@ -4,7 +4,7 @@ import React from "react";
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, PhoneOutgoing, Activity, Users, Settings, Database, Moon, Sun, DollarSign, Wallet } from "lucide-react";
+import { LayoutDashboard, PhoneOutgoing, PhoneIncoming, Activity, Users, Settings, Database, Moon, Sun, DollarSign, Wallet, Bot } from "lucide-react";
 import { useTheme } from "next-themes";
 import { useAppContext } from "./app-provider";
 
@@ -26,6 +26,11 @@ export default function Sidebar() {
     { name: "Wallet", path: "/wallet", icon: Wallet },
   ];
 
+  const configRoutes = [
+    { name: "Inbound Agent", path: "/config/inbound", icon: PhoneIncoming },
+    { name: "Outbound Agent", path: "/config/outbound", icon: Bot },
+  ];
+
   const currentTheme = mounted ? resolvedTheme : 'light';
 
   return (
@@ -37,10 +42,30 @@ export default function Sidebar() {
         <span className="text-xl font-bold text-gray-900 dark:text-[#e6edf3] tracking-tight">Rapid X AI</span>
       </div>
 
-      <div className="flex-1 px-4 space-y-1 mt-4">
+      <div className="flex-1 px-4 space-y-1 mt-4 overflow-y-auto">
         <div className="px-3 mb-2 text-xs font-semibold text-gray-500 dark:text-[#8b949e] uppercase tracking-wider">Menu</div>
         {routes.map((route) => {
-          const isActive = pathname === route.path;
+          const isActive = route.path === "/" ? pathname === "/" : pathname.startsWith(route.path);
+          const Icon = route.icon;
+          return (
+            <Link
+              key={route.path}
+              href={route.path}
+              className={`flex items-center gap-3 px-3 py-2.5 rounded-md transition-all text-sm font-medium ${
+                isActive
+                   ? "bg-[#2f81f7]/10 text-[#2f81f7] border border-[#2f81f7]/20 dark:border-[#2f81f7]/20"
+                   : "text-gray-600 dark:text-[#8b949e] hover:bg-gray-100 dark:hover:bg-[#21262d] hover:text-gray-900 dark:hover:text-[#e6edf3] border border-transparent"
+              }`}
+            >
+              <Icon className={`w-4 h-4 ${isActive ? "text-[#2f81f7]" : "text-gray-500 dark:text-[#8b949e]"}`} />
+              {route.name}
+            </Link>
+          );
+        })}
+
+        <div className="px-3 mb-2 mt-5 text-xs font-semibold text-gray-500 dark:text-[#8b949e] uppercase tracking-wider">Configuration</div>
+        {configRoutes.map((route) => {
+          const isActive = pathname.startsWith(route.path);
           const Icon = route.icon;
           return (
             <Link

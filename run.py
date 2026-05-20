@@ -51,7 +51,7 @@ def main():
             stderr=None,
         )
         processes["outbound"] = p_out
-        log(GREEN, "OUTBOUND", f"Started → PID {p_out.pid} | agent_name=outbound-caller")
+        log(GREEN, "OUTBOUND", f"Started -> PID {p_out.pid} | agent_name=outbound-caller")
 
         # Small delay so logs don't interleave on startup
         time.sleep(0.5)
@@ -65,7 +65,7 @@ def main():
             stderr=None,
         )
         processes["inbound"] = p_in
-        log(CYAN, "INBOUND ", f"Started → PID {p_in.pid}  | agent_name=inbound-caller")
+        log(CYAN, "INBOUND ", f"Started -> PID {p_in.pid}  | agent_name=inbound-caller")
 
         print()
         log(BOLD, "RUN", f"Both agents running. Press {BOLD}Ctrl+C{RESET} to stop.")
@@ -89,7 +89,7 @@ def main():
                         cwd=cwd,
                     )
                     processes[name] = new_proc
-                    log(color, name.upper(), f"Restarted → PID {new_proc.pid}")
+                    log(color, name.upper(), f"Restarted -> PID {new_proc.pid}")
 
     except KeyboardInterrupt:
         print()

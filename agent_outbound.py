@@ -155,6 +155,9 @@ class OutboundAssistant(Agent):
 # =============================================================================
 
 async def entrypoint(ctx: agents.JobContext):
+    # Reload config from dashboard JSON on every new call
+    config.load_dashboard_config()
+
     logger.info("=" * 60)
     logger.info("[OUTBOUND] *** NEW OUTBOUND JOB ***")
     logger.info(f"[OUTBOUND] Room: {ctx.room.name} | Job: {ctx.job.id}")
