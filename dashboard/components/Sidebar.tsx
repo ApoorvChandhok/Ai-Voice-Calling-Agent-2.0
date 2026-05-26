@@ -4,7 +4,7 @@ import React from "react";
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, PhoneOutgoing, PhoneIncoming, Activity, Users, Settings, Database, Moon, Sun, DollarSign, Wallet, Bot } from "lucide-react";
+import { LayoutDashboard, PhoneOutgoing, PhoneIncoming, Activity, Users, Settings, Database, Moon, Sun, DollarSign, Wallet, Bot, GitBranch, Key } from "lucide-react";
 import { useTheme } from "next-themes";
 import { useAppContext } from "./app-provider";
 
@@ -23,6 +23,8 @@ export default function Sidebar() {
     { name: "Outbound Dialer", path: "/dialer", icon: PhoneOutgoing },
     { name: "Call Logs", path: "/logs", icon: Activity },
     { name: "Leads / CRM", path: "/leads", icon: Users },
+    { name: "Workflows", path: "/workflows", icon: GitBranch },
+    { name: "Integrations", path: "/integrations", icon: Key },
     { name: "Wallet", path: "/wallet", icon: Wallet },
   ];
 

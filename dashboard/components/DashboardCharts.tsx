@@ -38,9 +38,11 @@ export default function DashboardCharts({ stats }: DashboardChartsProps) {
     charts.forEach((chart) => {
       const savedStart = localStorage.getItem(`dashboard-brush-start-${chart}-${mode}`);
       const savedEnd = localStorage.getItem(`dashboard-brush-end-${chart}-${mode}`);
+      const parsedStart = savedStart !== null ? parseInt(savedStart, 10) : NaN;
+      const parsedEnd = savedEnd !== null ? parseInt(savedEnd, 10) : NaN;
       newState[chart] = {
-        startIndex: savedStart !== null ? parseInt(savedStart, 10) : undefined,
-        endIndex: savedEnd !== null ? parseInt(savedEnd, 10) : undefined,
+        startIndex: !isNaN(parsedStart) ? parsedStart : undefined,
+        endIndex: !isNaN(parsedEnd) ? parsedEnd : undefined,
       };
     });
     
@@ -63,9 +65,11 @@ export default function DashboardCharts({ stats }: DashboardChartsProps) {
     charts.forEach((chart) => {
       const savedStart = localStorage.getItem(`dashboard-brush-start-${chart}-${mode}`);
       const savedEnd = localStorage.getItem(`dashboard-brush-end-${chart}-${mode}`);
+      const parsedStart = savedStart !== null ? parseInt(savedStart, 10) : NaN;
+      const parsedEnd = savedEnd !== null ? parseInt(savedEnd, 10) : NaN;
       newState[chart] = {
-        startIndex: savedStart !== null ? parseInt(savedStart, 10) : undefined,
-        endIndex: savedEnd !== null ? parseInt(savedEnd, 10) : undefined,
+        startIndex: !isNaN(parsedStart) ? parsedStart : undefined,
+        endIndex: !isNaN(parsedEnd) ? parsedEnd : undefined,
       };
     });
 
@@ -74,7 +78,7 @@ export default function DashboardCharts({ stats }: DashboardChartsProps) {
 
   const handleBrushChange = (chart: ChartType) => (state: any) => {
     if (!isMounted.current) return;
-    if (state && typeof state.startIndex === 'number' && typeof state.endIndex === 'number') {
+    if (state && typeof state.startIndex === 'number' && !isNaN(state.startIndex) && typeof state.endIndex === 'number' && !isNaN(state.endIndex)) {
       setBrushState((prev) => ({
         ...prev,
         [chart]: { startIndex: state.startIndex, endIndex: state.endIndex }

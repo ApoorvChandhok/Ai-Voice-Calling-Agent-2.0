@@ -10,6 +10,7 @@ const DATA_DIR = path.join(process.cwd(), "..", "data");
 const LOGS_FILE = path.join(DATA_DIR, "call_logs.json");
 const LEADS_FILE = path.join(DATA_DIR, "leads.csv");
 const ANALYSIS_CACHE_FILE = path.join(DATA_DIR, "analysis_cache.json");
+const LEADS_META_FILE = path.join(DATA_DIR, "leads_meta.json");
 
 import crypto from "crypto";
 
@@ -161,26 +162,150 @@ export async function getCallLogs() {
   }
 }
 
-export async function getLeads() {
+// ── Lead Types ─────────────────────────────────────────────────────────────
+
+export type LeadStatus = "New" | "Contacted" | "Qualified" | "Proposal" | "Negotiation" | "Won" | "Lost";
+export type LeadPriority = "Low" | "Medium" | "High" | "Urgent";
+export type LeadSource = "AI Agent (Inbound)" | "AI Agent (Outbound)" | "Website" | "Referral" | "Google Ads" | "Social Media" | "Walk-in" | "Manual" | "Other";
+
+export interface LeadNote {
+  text: string;
+  timestamp: string;
+}
+
+export interface EnrichedLead {
+  // Base (from CSV)
+  timestamp: string;
+  name: string;
+  phone: string;
+  city: string;
+  // Enriched (from meta JSON)
+  email: string;
+  status: LeadStatus;
+  priority: LeadPriority;
+  source: LeadSource;
+  tags: string[];
+  notes: LeadNote[];
+  assignedTo: string;
+  lastActivity: string;
+  callCount: number;
+  sentiment: string;
+  callerIntent: string;
+}
+
+interface LeadMeta {
+  email?: string;
+  status?: LeadStatus;
+  priority?: LeadPriority;
+  source?: LeadSource;
+  tags?: string[];
+  notes?: LeadNote[];
+  assignedTo?: string;
+  lastActivity?: string;
+}
+
+function readLeadsMeta(): Record<string, LeadMeta> {
+  try {
+    if (!fs.existsSync(LEADS_META_FILE)) return {};
+    return JSON.parse(fs.readFileSync(LEADS_META_FILE, "utf-8"));
+  } catch {
+    return {};
+  }
+}
+
+function writeLeadsMeta(meta: Record<string, LeadMeta>) {
+  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+  fs.writeFileSync(LEADS_META_FILE, JSON.stringify(meta, null, 2), "utf-8");
+}
+
+function parseLeadsCsv(): { timestamp: string; name: string; phone: string; city: string }[] {
   try {
     if (!fs.existsSync(LEADS_FILE)) return [];
     const data = fs.readFileSync(LEADS_FILE, "utf-8");
     const lines = data.split("\n").filter(line => line.trim() !== "");
-    if (lines.length <= 1) return []; // Only header
-    
-    // Parse CSV simple (assuming no complex quotes formatting)
-    const leads = lines.slice(1).map(line => {
-      // Remove quotes and split
+    if (lines.length <= 1) return [];
+    return lines.slice(1).map(line => {
       const parts = line.replace(/"/g, "").split(",");
       return {
         timestamp: parts[0] || "",
         name: parts[1] || "",
         phone: parts[2] || "",
-        city: parts[3] || ""
+        city: parts[3] || "",
       };
     });
-    
-    return leads.reverse(); // Newest first
+  } catch {
+    return [];
+  }
+}
+
+export async function getLeads(): Promise<EnrichedLead[]> {
+  try {
+    const csvLeads = parseLeadsCsv();
+    const meta = readLeadsMeta();
+
+    // Cross-reference call logs for sentiment, intent, call count
+    let callLogs: any[] = [];
+    try {
+      if (fs.existsSync(LOGS_FILE)) {
+        callLogs = JSON.parse(fs.readFileSync(LOGS_FILE, "utf-8"));
+      }
+    } catch { /* ignore */ }
+
+    let analysisCache: Record<string, any> = {};
+    try {
+      if (fs.existsSync(ANALYSIS_CACHE_FILE)) {
+        analysisCache = JSON.parse(fs.readFileSync(ANALYSIS_CACHE_FILE, "utf-8"));
+      }
+    } catch { /* ignore */ }
+
+    const enriched: EnrichedLead[] = csvLeads.map((lead) => {
+      const m = meta[lead.phone] || {};
+
+      // Find matching call logs
+      const matchingCalls = callLogs.filter((log: any) =>
+        log.phone_number?.replace("+", "").includes(lead.phone.replace("+", "")) ||
+        lead.phone.replace("+", "").includes(log.phone_number?.replace("+", "") || "__none__")
+      );
+
+      // Find sentiment from analysis cache
+      let sentiment = "";
+      let callerIntent = "";
+      for (const [, analysis] of Object.entries(analysisCache)) {
+        const a = analysis as any;
+        if (a?.lead_info?.name?.toLowerCase() === lead.name?.toLowerCase()) {
+          sentiment = a.sentiment || "";
+          callerIntent = a.lead_info?.intent || "";
+          break;
+        }
+      }
+
+      // Also check matching calls for sentiment
+      if (!sentiment && matchingCalls.length > 0) {
+        const latestCall = matchingCalls[matchingCalls.length - 1];
+        sentiment = latestCall.sentiment || "";
+        callerIntent = callerIntent || latestCall.caller_intent || "";
+      }
+
+      return {
+        timestamp: lead.timestamp,
+        name: lead.name,
+        phone: lead.phone,
+        city: lead.city,
+        email: m.email || "",
+        status: m.status || "New",
+        priority: m.priority || "Medium",
+        source: m.source || "AI Agent (Inbound)",
+        tags: m.tags || [],
+        notes: m.notes || [],
+        assignedTo: m.assignedTo || "",
+        lastActivity: m.lastActivity || lead.timestamp,
+        callCount: matchingCalls.length,
+        sentiment,
+        callerIntent,
+      };
+    });
+
+    return enriched.reverse(); // Newest first
   } catch (error) {
     console.error("Error reading leads:", error);
     return [];
@@ -700,4 +825,192 @@ function parseVobizSentiment(sentiment: any): string {
     return "Neutral";
   }
   return "Neutral";
+}
+
+// ── Lead CRUD Actions ──────────────────────────────────────────────────────
+
+export async function updateLeadMeta(
+  phone: string,
+  data: Partial<LeadMeta>
+): Promise<boolean> {
+  try {
+    const meta = readLeadsMeta();
+    meta[phone] = {
+      ...meta[phone],
+      ...data,
+      lastActivity: new Date().toISOString(),
+    };
+    writeLeadsMeta(meta);
+    return true;
+  } catch (error) {
+    console.error("Error updating lead meta:", error);
+    return false;
+  }
+}
+
+export async function addLeadNote(
+  phone: string,
+  noteText: string
+): Promise<boolean> {
+  try {
+    const meta = readLeadsMeta();
+    if (!meta[phone]) meta[phone] = {};
+    if (!meta[phone].notes) meta[phone].notes = [];
+    meta[phone].notes!.push({
+      text: noteText,
+      timestamp: new Date().toISOString(),
+    });
+    meta[phone].lastActivity = new Date().toISOString();
+    writeLeadsMeta(meta);
+    return true;
+  } catch (error) {
+    console.error("Error adding lead note:", error);
+    return false;
+  }
+}
+
+export async function addNewLead(data: {
+  name: string;
+  phone: string;
+  email?: string;
+  city?: string;
+  status?: LeadStatus;
+  priority?: LeadPriority;
+  source?: LeadSource;
+  tags?: string[];
+  note?: string;
+}): Promise<boolean> {
+  try {
+    // Write to CSV
+    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+    if (!fs.existsSync(LEADS_FILE)) {
+      fs.writeFileSync(LEADS_FILE, "Timestamp,Name,Phone,City\n");
+    }
+
+    // Check for duplicate phone
+    const existing = fs.readFileSync(LEADS_FILE, "utf-8");
+    if (existing.includes(data.phone)) {
+      return false; // Duplicate
+    }
+
+    const timestamp = new Date().toISOString();
+    fs.appendFileSync(
+      LEADS_FILE,
+      `"${timestamp}","${data.name}","${data.phone}","${data.city || ""}"\n`
+    );
+
+    // Write enriched meta
+    const meta = readLeadsMeta();
+    meta[data.phone] = {
+      email: data.email || "",
+      status: data.status || "New",
+      priority: data.priority || "Medium",
+      source: data.source || "Manual",
+      tags: data.tags || [],
+      notes: data.note
+        ? [{ text: data.note, timestamp }]
+        : [],
+      assignedTo: "",
+      lastActivity: timestamp,
+    };
+    writeLeadsMeta(meta);
+    return true;
+  } catch (error) {
+    console.error("Error adding lead:", error);
+    return false;
+  }
+}
+
+export async function deleteLead(phone: string): Promise<boolean> {
+  try {
+    // Remove from CSV
+    if (fs.existsSync(LEADS_FILE)) {
+      const data = fs.readFileSync(LEADS_FILE, "utf-8");
+      const lines = data.split("\n");
+      const filtered = lines.filter(
+        (line) => !line.includes(phone)
+      );
+      fs.writeFileSync(LEADS_FILE, filtered.join("\n"));
+    }
+
+    // Remove from meta
+    const meta = readLeadsMeta();
+    delete meta[phone];
+    writeLeadsMeta(meta);
+    return true;
+  } catch (error) {
+    console.error("Error deleting lead:", error);
+    return false;
+  }
+}
+
+export async function bulkUpdateLeads(
+  phones: string[],
+  data: { status?: LeadStatus; tags?: string[]; priority?: LeadPriority }
+): Promise<boolean> {
+  try {
+    const meta = readLeadsMeta();
+    phones.forEach((phone) => {
+      if (!meta[phone]) meta[phone] = {};
+      if (data.status) meta[phone].status = data.status;
+      if (data.priority) meta[phone].priority = data.priority;
+      if (data.tags) {
+        const existing = meta[phone].tags || [];
+        meta[phone].tags = [...new Set([...existing, ...data.tags])];
+      }
+      meta[phone].lastActivity = new Date().toISOString();
+    });
+    writeLeadsMeta(meta);
+    return true;
+  } catch (error) {
+    console.error("Error bulk updating leads:", error);
+    return false;
+  }
+}
+
+export async function bulkDeleteLeads(phones: string[]): Promise<boolean> {
+  try {
+    // Remove from CSV
+    if (fs.existsSync(LEADS_FILE)) {
+      const data = fs.readFileSync(LEADS_FILE, "utf-8");
+      const lines = data.split("\n");
+      const filtered = lines.filter(
+        (line) => !phones.some((p) => line.includes(p))
+      );
+      fs.writeFileSync(LEADS_FILE, filtered.join("\n"));
+    }
+
+    // Remove from meta
+    const meta = readLeadsMeta();
+    phones.forEach((phone) => delete meta[phone]);
+    writeLeadsMeta(meta);
+    return true;
+  } catch (error) {
+    console.error("Error bulk deleting leads:", error);
+    return false;
+  }
+}
+
+export async function exportLeadsCsv(): Promise<string> {
+  const leads = await getLeads();
+  const headers = "Name,Phone,Email,City,Status,Priority,Source,Tags,Captured Date,Last Activity,Sentiment,Intent";
+  const rows = leads.map((l) =>
+    [
+      l.name,
+      l.phone,
+      l.email,
+      l.city,
+      l.status,
+      l.priority,
+      l.source,
+      l.tags.join(";"),
+      l.timestamp,
+      l.lastActivity,
+      l.sentiment,
+      l.callerIntent,
+    ]
+      .map((v) => `"${(v || "").replace(/"/g, '""')}"`)
+      .join(",")
+  );
+  return [headers, ...rows].join("\n");
 }

@@ -76,17 +76,19 @@ export default function CostGraph({ logs, customData, type = "default", brushSta
           <Area type="monotone" dataKey="totalCalls" name="Total Calls" stroke="#22c55e" strokeWidth={2} fillOpacity={0.1} fill="#22c55e" />
           <Area type="monotone" dataKey="sipTrunk" name="SIP Trunk" stroke="#3b82f6" strokeWidth={2} fillOpacity={0.1} fill="#3b82f6" />
           <Area type="monotone" dataKey="voiceApi" name="Voice API" stroke="#eab308" strokeWidth={2} fillOpacity={0.1} fill="#eab308" />
-          <Brush 
-            dataKey="date" 
-            height={15} 
-            stroke="#8b949e" 
-            fill="transparent" 
-            travellerWidth={6} 
-            startIndex={brushStartIndex !== undefined ? brushStartIndex : Math.max(0, customData.length - 7)} 
-            endIndex={brushEndIndex !== undefined ? brushEndIndex : customData.length - 1} 
-            onChange={onBrushChange} 
-            tickFormatter={(idx) => customData?.[idx]?.date?.split(' ')[0] || ''} 
-          />
+          {customData.length > 0 && (
+            <Brush 
+              dataKey="date" 
+              height={15} 
+              stroke="#8b949e" 
+              fill="transparent" 
+              travellerWidth={6} 
+              startIndex={brushStartIndex !== undefined && !isNaN(brushStartIndex) ? Math.min(Math.max(0, brushStartIndex), customData.length - 1) : Math.max(0, customData.length - 7)} 
+              endIndex={brushEndIndex !== undefined && !isNaN(brushEndIndex) ? Math.min(Math.max(0, brushEndIndex), customData.length - 1) : Math.max(0, customData.length - 1)} 
+              onChange={onBrushChange} 
+              tickFormatter={(idx) => customData?.[idx]?.date?.split(' ')[0] || ''} 
+            />
+          )}
         </AreaChart>
       </ResponsiveContainer>
     );
@@ -105,17 +107,19 @@ export default function CostGraph({ logs, customData, type = "default", brushSta
           <Area type="monotone" dataKey="transcription" name="Transcription" stackId="1" stroke="#2dd4bf" strokeWidth={2} fillOpacity={0.3} fill="#2dd4bf" />
           <Area type="monotone" dataKey="ncc" name="Ncc" stackId="1" stroke="#f87171" strokeWidth={2} fillOpacity={0.3} fill="#f87171" />
           <Area type="monotone" dataKey="didPurchase" name="DID Purchase" stackId="1" stroke="#c084fc" strokeWidth={2} fillOpacity={0.3} fill="#c084fc" />
-          <Brush 
-            dataKey="date" 
-            height={15} 
-            stroke="#8b949e" 
-            fill="transparent" 
-            travellerWidth={6} 
-            startIndex={brushStartIndex !== undefined ? brushStartIndex : Math.max(0, customData.length - 7)} 
-            endIndex={brushEndIndex !== undefined ? brushEndIndex : customData.length - 1} 
-            onChange={onBrushChange} 
-            tickFormatter={(idx) => customData?.[idx]?.date?.split(' ')[0] || ''} 
-          />
+          {customData.length > 0 && (
+            <Brush 
+              dataKey="date" 
+              height={15} 
+              stroke="#8b949e" 
+              fill="transparent" 
+              travellerWidth={6} 
+              startIndex={brushStartIndex !== undefined && !isNaN(brushStartIndex) ? Math.min(Math.max(0, brushStartIndex), customData.length - 1) : Math.max(0, customData.length - 7)} 
+              endIndex={brushEndIndex !== undefined && !isNaN(brushEndIndex) ? Math.min(Math.max(0, brushEndIndex), customData.length - 1) : Math.max(0, customData.length - 1)} 
+              onChange={onBrushChange} 
+              tickFormatter={(idx) => customData?.[idx]?.date?.split(' ')[0] || ''} 
+            />
+          )}
         </AreaChart>
       </ResponsiveContainer>
     );
@@ -147,17 +151,19 @@ export default function CostGraph({ logs, customData, type = "default", brushSta
           />
           <Bar dataKey="inbound" name="Inbound" stackId="a" fill="#22c55e" radius={[0, 0, 0, 0]} />
           <Bar dataKey="outbound" name="Outbound" stackId="a" fill="#f97316" radius={[4, 4, 0, 0]} />
-          <Brush 
-            dataKey="date" 
-            height={15} 
-            stroke="#8b949e" 
-            fill="transparent" 
-            travellerWidth={6} 
-            startIndex={brushStartIndex !== undefined ? brushStartIndex : Math.max(0, customData.length - 7)} 
-            endIndex={brushEndIndex !== undefined ? brushEndIndex : customData.length - 1} 
-            onChange={onBrushChange} 
-            tickFormatter={(idx) => customData?.[idx]?.date?.split(' ')[0] || ''} 
-          />
+          {customData.length > 0 && (
+            <Brush 
+              dataKey="date" 
+              height={15} 
+              stroke="#8b949e" 
+              fill="transparent" 
+              travellerWidth={6} 
+              startIndex={brushStartIndex !== undefined && !isNaN(brushStartIndex) ? Math.min(Math.max(0, brushStartIndex), customData.length - 1) : Math.max(0, customData.length - 7)} 
+              endIndex={brushEndIndex !== undefined && !isNaN(brushEndIndex) ? Math.min(Math.max(0, brushEndIndex), customData.length - 1) : Math.max(0, customData.length - 1)} 
+              onChange={onBrushChange} 
+              tickFormatter={(idx) => customData?.[idx]?.date?.split(' ')[0] || ''} 
+            />
+          )}
         </BarChart>
       </ResponsiveContainer>
     );
