@@ -85,6 +85,21 @@
 
 ## 🪵 Immutable Change Log
 
+### [2026-06-13] - Implement Dynamic Currency Conversion and Formatting Across Dashboard
+* **Context:** Changing the currency settings (INR, USD, EUR, GBP) did not update the currency formatting/symbols in the overview cards and Wallet dashboard.
+* **Scope:**
+  - Added and exported a dynamic `CurrencySymbol` component from `dashboard/components/FormattedCurrency.tsx`.
+  - Updated the "Total Spend" overview card in `dashboard/app/page.tsx` to render using the dynamic `FormattedCurrency` and `CurrencySymbol` components.
+  - Refactored `dashboard/components/WalletDashboard.tsx` to pull the active currency and exchange rates from `useAppContext()`, dynamically converting all wallet balance, spending breakdowns, and recent transaction values.
+* **Impact:** The selected currency now correctly translates and formats all cost and balance values dynamically across the entire project.
+
+### [2026-06-13] - Fix Frontend dev Server Loop & Enable Log Runner Capturing
+* **Context:** Running `npm run dev` in dashboard failed to start the local host server and instead exited immediately. The user wanted both the log runner to capture logs and the server to run.
+* **Scope:**
+  - Re-routed `dashboard/package.json`'s `"dev"` script back to `"python ../log_runner.py frontend"`.
+  - Modified `log_runner.py`'s frontend runner to call `["npx", "next", "dev"]` directly instead of recursively calling `["npm", "run", "dev"]`.
+* **Impact:** `npm run dev` now runs via `log_runner.py` without recursion, launching Next.js on `http://localhost:3000` and successfully capturing all logs to the `logs/` directory.
+
 ### [2026-06-12] - Voice Calling Agent Conversational Experience & Latency Optimizations
 * **Context:** Optimized inbound and outbound voice agents for lower latency, higher quality TTS, and dynamic multilingual capabilities.
 * **Scope:**

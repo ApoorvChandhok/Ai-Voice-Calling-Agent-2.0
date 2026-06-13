@@ -4,6 +4,7 @@ import Link from "next/link";
 import GlobeWrapper from "@/components/GlobeWrapper";
 import DashboardCharts from "@/components/DashboardCharts";
 import TiltCard from "@/components/TiltCard";
+import FormattedCurrency, { CurrencySymbol } from "@/components/FormattedCurrency";
 
 // Helper to format currency
 const formatCurrency = (amount: number) => {
@@ -29,12 +30,12 @@ export default async function Overview() {
     },
     {
       label: "Total Spend",
-      value: formatCurrency(stats.totalCost),
+      value: <FormattedCurrency value={stats.totalCost} />,
       change: "+100.0%",
       iconBg: "bg-blue-50 dark:bg-[#101525] border border-blue-500/20",
       iconColor: "text-blue-500",
       icon: null,
-      iconText: "₹",
+      iconText: <CurrencySymbol />,
       stagger: "stagger-2",
     },
     {

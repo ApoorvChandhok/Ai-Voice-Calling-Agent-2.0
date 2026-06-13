@@ -12,3 +12,14 @@ export default function FormattedCurrency({ value, className }: { value: number 
 
   return <span className={className}>{formatCurrency(numericValue || 0)}</span>;
 }
+
+export function CurrencySymbol() {
+  const { currency } = useAppContext();
+  const symbols: Record<string, string> = {
+    INR: "₹",
+    USD: "$",
+    EUR: "€",
+    GBP: "£",
+  };
+  return <>{symbols[currency] || "₹"}</>;
+}

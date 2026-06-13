@@ -15,14 +15,14 @@ type Currency = "INR" | "USD" | "EUR" | "GBP";
  *   EUR: 1 INR = 1/112.14 EUR
  *   GBP: 1 INR = 1/129.19 GBP
  */
-const INR_TO_CURRENCY: Record<Currency, number> = {
+export const INR_TO_CURRENCY: Record<Currency, number> = {
   INR: 1,
   USD: 1 / 96.41,   // 1 USD = ₹96.41
   EUR: 1 / 112.14,  // 1 EUR = ₹112.14
   GBP: 1 / 129.19,  // 1 GBP = ₹129.19
 };
 
-const currencySymbols: Record<Currency, string> = {
+export const currencySymbols: Record<Currency, string> = {
   INR: "₹",
   USD: "$",
   EUR: "€",

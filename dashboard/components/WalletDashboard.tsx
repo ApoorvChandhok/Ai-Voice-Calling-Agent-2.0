@@ -9,6 +9,7 @@ import { motion } from "framer-motion";
 import { Wallet, TrendingDown, Clock, CheckCircle2, Phone, FileText, Mic, Radio, Zap, ChevronRight } from "lucide-react";
 import type { WalletData, TransactionType } from "@/lib/actions";
 import { useTheme } from "next-themes";
+import { useAppContext, INR_TO_CURRENCY, currencySymbols } from "./app-provider";
 
 const TYPE_COLORS: Record<TransactionType, string> = {
   CDR:          "#f97316",  // orange  — matches VoBiz
@@ -82,28 +83,56 @@ export default function WalletDashboard({ data }: { data: WalletData }) {
   const isDark = resolvedTheme === "dark";
   const [activeFilter, setActiveFilter] = useState<TransactionType | "All">("All");
 
-  const { balance, currency, transactions, dailySpending, categoryTotals, usageSummary } = data;
+  const { currency } = useAppContext();
+  const rate = INR_TO_CURRENCY[currency];
+  const sym = currencySymbols[currency];
 
-  const sym = currency === "INR" ? "₹" : currency === "EUR" ? "€" : currency === "GBP" ? "£" : "$";
+  const balance = data.balance * rate;
+  const rawTotalSpent = Object.values(data.categoryTotals).reduce((a, b) => a + b, 0);
+  const totalSpent = rawTotalSpent * rate;
 
-  const totalSpent = useMemo(
-    () => Object.values(categoryTotals).reduce((a, b) => a + b, 0),
-    [categoryTotals]
-  );
+  const convertedTransactions = useMemo(() => {
+    return data.transactions.map(tx => ({
+      ...tx,
+      amount: tx.amount * rate
+    }));
+  }, [data.transactions, rate]);
 
   const filteredTx = useMemo(
-    () => activeFilter === "All" ? transactions : transactions.filter(t => t.type === activeFilter),
-    [transactions, activeFilter]
+    () => activeFilter === "All" ? convertedTransactions : convertedTransactions.filter(t => t.type === activeFilter),
+    [convertedTransactions, activeFilter]
   );
+
+  const convertedCategoryTotals = useMemo(() => {
+    const res: Record<string, number> = {};
+    for (const key in data.categoryTotals) {
+      res[key] = data.categoryTotals[key] * rate;
+    }
+    return res;
+  }, [data.categoryTotals, rate]);
+
+  const convertedDailySpending = useMemo(() => {
+    return data.dailySpending.map(ds => {
+      const convertedDs = { ...ds };
+      ALL_TYPES.forEach(type => {
+        if (typeof ds[type] === 'number') {
+          convertedDs[type] = (ds[type] as number) * rate;
+        }
+      });
+      return convertedDs;
+    });
+  }, [data.dailySpending, rate]);
+
+  const usageSummary = data.usageSummary;
 
   // Donut chart data — only non-zero categories
   const pieData = useMemo(() =>
-    ALL_TYPES.filter(t => categoryTotals[t] > 0).map(t => ({
+    ALL_TYPES.filter(t => convertedCategoryTotals[t] > 0).map(t => ({
       name: t,
-      value: categoryTotals[t],
+      value: convertedCategoryTotals[t],
       fill: TYPE_COLORS[t],
     })),
-    [categoryTotals]
+    [convertedCategoryTotals]
   );
 
   const gridColor  = isDark ? "#30363d" : "#e5e7eb";
@@ -164,15 +193,15 @@ export default function WalletDashboard({ data }: { data: WalletData }) {
         <div className="lg:col-span-2 bg-white/80 dark:bg-[#161b22]/60 backdrop-blur-md border border-gray-200/50 dark:border-white/8 rounded-2xl p-5 shadow-sm">
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-semibold text-gray-900 dark:text-[#e6edf3]">Daily Spending Breakdown</h3>
-            {dailySpending.length > 0 && (
+            {convertedDailySpending.length > 0 && (
               <span className="text-xs text-gray-400 dark:text-[#8b949e]">
-                {dailySpending[0]?.date} – {dailySpending[dailySpending.length - 1]?.date}
+                {convertedDailySpending[0]?.date} – {convertedDailySpending[convertedDailySpending.length - 1]?.date}
               </span>
             )}
           </div>
-          {dailySpending.length > 0 ? (
+          {convertedDailySpending.length > 0 ? (
             <ResponsiveContainer width="100%" height={240}>
-              <BarChart data={dailySpending} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+              <BarChart data={convertedDailySpending} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
                 <CartesianGrid vertical={false} stroke={gridColor} strokeDasharray="4 4" />
                 <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: tickColor }} dy={6} />
                 <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: tickColor }} tickFormatter={v => `${sym}${v}`} />

@@ -278,7 +278,7 @@ def run_frontend():
 
         try:
             proc = subprocess.Popen(
-                ["npm", "run", "dev"],
+                ["npx", "next", "dev"],
                 cwd=str(DASHBOARD_DIR),
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
