@@ -45,10 +45,10 @@ logging.getLogger("aiohttp").setLevel(logging.WARNING)
 logging.getLogger("livekit").setLevel(logging.INFO)
 logger = logging.getLogger("outbound-agent")
 
-# Import the OUTBOUND config directly — no routing needed
-import config_outbound as config
+# Import the dynamic workspace config loader
+from workspace_config_loader import load_workspace_config, WorkspaceAgentConfig
 
-logger.info(f"[OUTBOUND] Agent loaded -> {getattr(config, 'AGENT_NAME', 'Unknown')}")
+logger.info("[OUTBOUND] Agent initialized")
 
 # Pre-load VAD model at startup so it's ready instantly when a call arrives
 # (avoids ~1-2s cold-load delay on first call)
@@ -59,8 +59,8 @@ _VAD = silero.VAD.load()
 # HELPERS
 # =============================================================================
 
-def _build_tts(provider_override: str = None, voice_override: str = None, language_override: str = None):
-    provider = (provider_override or os.getenv("TTS_PROVIDER", config.DEFAULT_TTS_PROVIDER)).lower()
+def _build_tts(ws_config: WorkspaceAgentConfig, provider_override: str = None, voice_override: str = None, language_override: str = None):
+    provider = (provider_override or os.getenv("TTS_PROVIDER", ws_config.tts_provider)).lower()
 
     # Route to Sarvam if the voice override is a known Sarvam speaker (bulbul:v3 compatible list)
     _SARVAM_VOICES = {
@@ -74,13 +74,13 @@ def _build_tts(provider_override: str = None, voice_override: str = None, langua
 
     if provider == "cartesia":
         return cartesia.TTS(
-            model=os.getenv("CARTESIA_TTS_MODEL", config.CARTESIA_MODEL),
-            voice=os.getenv("CARTESIA_TTS_VOICE", config.CARTESIA_VOICE),
+            model=os.getenv("CARTESIA_TTS_MODEL", "sonic-english"),
+            voice=os.getenv("CARTESIA_TTS_VOICE", "248be419-c632-4f23-adf1-5324ed7dbf1d"),
         )
     if provider == "sarvam":
-        model    = os.getenv("SARVAM_TTS_MODEL", config.SARVAM_MODEL)
-        voice    = voice_override or os.getenv("SARVAM_VOICE", config.DEFAULT_TTS_VOICE)
-        language = language_override or os.getenv("SARVAM_LANGUAGE", config.SARVAM_LANGUAGE)
+        model    = os.getenv("SARVAM_TTS_MODEL", "bulbul:v1")
+        voice    = voice_override or os.getenv("SARVAM_VOICE", ws_config.tts_voice)
+        language = language_override or os.getenv("SARVAM_LANGUAGE", ws_config.tts_language)
         logger.info(f"[TTS] Sarvam -- model={model}, speaker={voice}, lang={language}")
         return sarvam.TTS(model=model, speaker=voice, target_language_code=language)
     if provider == "deepgram":
@@ -88,21 +88,21 @@ def _build_tts(provider_override: str = None, voice_override: str = None, langua
     if os.getenv("OPENAI_API_KEY"):
         return openai.TTS(
             model=os.getenv("OPENAI_TTS_MODEL", "tts-1"),
-            voice=voice_override or os.getenv("OPENAI_TTS_VOICE", config.DEFAULT_TTS_VOICE),
+            voice=voice_override or os.getenv("OPENAI_TTS_VOICE", ws_config.tts_voice),
         )
     return deepgram.TTS(model=os.getenv("DEEPGRAM_TTS_MODEL", "aura-asteria-en"))
 
 
-def _build_llm(provider_override: str = None):
-    provider = (provider_override or os.getenv("LLM_PROVIDER", config.DEFAULT_LLM_PROVIDER)).lower()
+def _build_llm(ws_config: WorkspaceAgentConfig, provider_override: str = None):
+    provider = (provider_override or os.getenv("LLM_PROVIDER", ws_config.llm_provider)).lower()
 
     if provider == "groq":
         logger.info("[LLM] Groq")
         return openai.LLM(
             base_url="https://api.groq.com/openai/v1",
             api_key=os.getenv("GROQ_API_KEY"),
-            model=os.getenv("GROQ_MODEL", config.GROQ_MODEL),
-            temperature=float(os.getenv("GROQ_TEMPERATURE", str(config.GROQ_TEMPERATURE))),
+            model=os.getenv("GROQ_MODEL", ws_config.llm_model),
+            temperature=float(os.getenv("GROQ_TEMPERATURE", str(ws_config.llm_temperature))),
         )
 
     if provider in ("google", "gemini"):
@@ -121,7 +121,7 @@ def _build_llm(provider_override: str = None):
             logger.info("[LLM] OpenAI")
             return openai.LLM(
                 api_key=openai_key,
-                model=os.getenv("OPENAI_MODEL", config.DEFAULT_LLM_MODEL),
+                model=os.getenv("OPENAI_MODEL", ws_config.llm_model),
             )
         logger.warning("[LLM] OpenAI requested but OPENAI_API_KEY not set — falling back to Groq")
 
@@ -130,8 +130,8 @@ def _build_llm(provider_override: str = None):
     return openai.LLM(
         base_url="https://api.groq.com/openai/v1",
         api_key=os.getenv("GROQ_API_KEY"),
-        model=os.getenv("GROQ_MODEL", config.GROQ_MODEL),
-        temperature=float(os.getenv("GROQ_TEMPERATURE", str(config.GROQ_TEMPERATURE))),
+        model=os.getenv("GROQ_MODEL", ws_config.llm_model),
+        temperature=float(os.getenv("GROQ_TEMPERATURE", str(ws_config.llm_temperature))),
     )
 
 
@@ -140,9 +140,10 @@ def _build_llm(provider_override: str = None):
 # =============================================================================
 
 class OutboundTools(llm.ToolContext):
-    def __init__(self, ctx: agents.JobContext, phone_number: str = None):
+    def __init__(self, ctx: agents.JobContext, ws_config: WorkspaceAgentConfig, phone_number: str = None):
         super().__init__(tools=[])
         self.ctx = ctx
+        self.ws_config = ws_config
         self.phone_number = phone_number
         self.agent_session: Optional[AgentSession] = None
 
@@ -176,14 +177,14 @@ class OutboundTools(llm.ToolContext):
     @llm.function_tool(description="Transfer the call to a human support agent or another number.")
     async def transfer_call(self, destination: Optional[str] = None):
         """Transfer the call. Args: destination: SIP URI or phone number."""
-        target = destination or config.DEFAULT_TRANSFER_NUMBER
+        target = destination or self.ws_config.transfer_number
         if not target:
             return "Error: No default transfer number configured."
 
         if "@" not in target:
-            if config.SIP_DOMAIN:
+            if self.ws_config.sip_domain:
                 clean = target.replace("tel:", "").replace("sip:", "")
-                target = f"sip:{clean}@{config.SIP_DOMAIN}"
+                target = f"sip:{clean}@{self.ws_config.sip_domain}"
             elif not target.startswith("tel:"):
                 target = f"tel:{target}"
         elif not target.startswith("sip:"):
@@ -225,17 +226,14 @@ class OutboundTools(llm.ToolContext):
 # =============================================================================
 
 class OutboundAssistant(Agent):
-    def __init__(self, tools: list, user_prompt: str = None, tts_language: str = None):
+    def __init__(self, ws_config: WorkspaceAgentConfig, tools: list, user_prompt: str = None, tts_language: str = None):
         if user_prompt and user_prompt.strip():
             instructions = (
-                f"{config.SYSTEM_PROMPT}\n\n"
+                f"{ws_config.system_prompt}\n\n"
                 f"## Additional Context for This Call:\n{user_prompt.strip()}"
             )
         else:
-            instructions = config.SYSTEM_PROMPT
-            
-        if getattr(config, "AUTOMATIC_HANDOFF", False) and getattr(config, "HANDOFF_CONDITIONS", ""):
-            instructions += f"\n\nAUTOMATIC HANDOFF RULES: If the following conditions are met: [{config.HANDOFF_CONDITIONS}], you MUST immediately execute the `transfer_call` tool to hand off the call to a human agent. Do not ask for permission, just transfer."
+            instructions = ws_config.system_prompt
             
         instructions += (
             "\n\nCRITICAL LANGUAGE INSTRUCTION: If the user explicitly asks you to speak a different language, "
@@ -255,8 +253,6 @@ class OutboundAssistant(Agent):
 # =============================================================================
 
 async def entrypoint(ctx: agents.JobContext):
-    # Reload config from dashboard JSON on every new call
-    config.load_dashboard_config()
 
     logger.info("=" * 60)
     logger.info("[OUTBOUND] *** NEW OUTBOUND JOB ***")
@@ -289,22 +285,26 @@ async def entrypoint(ctx: agents.JobContext):
     except Exception as e:
         logger.error(f"[OUTBOUND] Room metadata parse error: {e}")
 
+    workspace_id = config_dict.get("business_id") or config_dict.get("workspace_id")
+    ws_config = await load_workspace_config(workspace_id, mode="outbound")
+
     # --- Build plugins ---
-    fnc_ctx   = OutboundTools(ctx, phone_number)
+    fnc_ctx   = OutboundTools(ctx, ws_config, phone_number)
     built_tts = _build_tts(
+        ws_config,
         config_dict.get("tts_provider"),
         config_dict.get("voice_id"),
         config_dict.get("tts_language")
     )
-    built_llm = _build_llm(config_dict.get("model_provider"))
+    built_llm = _build_llm(ws_config, config_dict.get("model_provider"))
 
     # Support dynamic language detection or code-switching if set to 'auto'
-    is_auto = (config.STT_LANGUAGE == "auto")
+    is_auto = (ws_config.stt_language == "auto")
     session = AgentSession(
         vad=_VAD,  # reuse pre-loaded model — no disk I/O on call start
         stt=deepgram.STT(
-            model=config.STT_MODEL,
-            language=config.STT_LANGUAGE if not is_auto else "en-US",
+            model=ws_config.stt_model,
+            language=ws_config.stt_language if not is_auto else "en-US",
             detect_language=is_auto,
         ),
         llm=built_llm,
@@ -316,6 +316,7 @@ async def entrypoint(ctx: agents.JobContext):
 
     user_prompt = config_dict.get("user_prompt", "")
     agent_instance = OutboundAssistant(
+        ws_config=ws_config,
         tools=list(fnc_ctx.function_tools.values()),
         user_prompt=user_prompt,
         tts_language=config_dict.get("tts_language")
@@ -373,12 +374,12 @@ async def entrypoint(ctx: agents.JobContext):
         e164_number = _normalize_phone(phone_number)
         # Strip '+' from identity — WebRTC layer can't parse '+' as integer
         safe_identity = f"sip_{e164_number.lstrip('+')}"
-        logger.info(f"[OUTBOUND] Dialling {e164_number} (raw={phone_number}) via trunk {config.SIP_TRUNK_ID}...")
+        logger.info(f"[OUTBOUND] Dialling {e164_number} (raw={phone_number}) via trunk {ws_config.outbound_trunk_id}...")
         try:
             await ctx.api.sip.create_sip_participant(
                 api.CreateSIPParticipantRequest(
                     room_name=ctx.room.name,
-                    sip_trunk_id=config.SIP_TRUNK_ID,
+                    sip_trunk_id=ws_config.outbound_trunk_id,
                     sip_call_to=e164_number,
                     participant_identity=safe_identity,
                     wait_until_answered=True,
@@ -387,7 +388,7 @@ async def entrypoint(ctx: agents.JobContext):
             logger.info("[OUTBOUND] Call answered. Speaking greeting instantly...")
             # Use say() to stream pre-written greeting directly to TTS.
             # This is MUCH faster than generate_reply() which needs a full LLM round-trip.
-            await session.say(config.INITIAL_GREETING, allow_interruptions=True)
+            await session.say(ws_config.initial_greeting, allow_interruptions=True)
         except Exception as e:
             logger.error(f"[OUTBOUND] Dial failed: {e}")
             import traceback; logger.error(traceback.format_exc())
@@ -396,7 +397,7 @@ async def entrypoint(ctx: agents.JobContext):
         logger.info("[OUTBOUND] Speaking fallback greeting instantly...")
         try:
             # No sleep needed — say() streams directly to TTS, no LLM latency
-            await session.say(config.INITIAL_GREETING, allow_interruptions=True)
+            await session.say(ws_config.initial_greeting, allow_interruptions=True)
         except Exception as e:
             logger.error(f"[OUTBOUND] Fallback greeting failed: {e}")
             import traceback; logger.error(traceback.format_exc())

@@ -11,6 +11,37 @@ import type {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
+async function getEffectiveBusinessId() {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error("Not authenticated");
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("business_id, role")
+    .eq("auth_user_id", user.id)
+    .single();
+
+  if (!profile) throw new Error("Profile not found");
+
+  let businessId = profile.business_id;
+
+  if (profile.role === "super_admin") {
+    const { cookies } = await import("next/headers");
+    const cookieStore = await cookies();
+    const activeWorkspaceId = cookieStore.get("active_workspace_id")?.value;
+    if (activeWorkspaceId) {
+      businessId = activeWorkspaceId;
+    }
+  }
+
+  if (!businessId) {
+    throw new Error("No business associated with your account");
+  }
+
+  return { businessId, user };
+}
+
 function mapRow(lead: Record<string, unknown>): EnrichedLead {
   return {
     timestamp:    (lead.created_at as string) ?? "",
@@ -34,19 +65,26 @@ function mapRow(lead: Record<string, unknown>): EnrichedLead {
 // ── READ ─────────────────────────────────────────────────────────────────────
 
 export async function getLeadsFromSupabase(): Promise<EnrichedLead[]> {
-  const supabase = await createClient();
+  try {
+    const { businessId } = await getEffectiveBusinessId();
+    const supabase = await createClient();
 
-  const { data: leads, error } = await supabase
-    .from("leads")
-    .select("*")
-    .order("created_at", { ascending: false });
+    const { data: leads, error } = await supabase
+      .from("leads")
+      .select("*")
+      .eq("business_id", businessId)
+      .order("created_at", { ascending: false });
 
-  if (error) {
-    console.error("[getLeadsFromSupabase]", error.message);
+    if (error) {
+      console.error("[getLeadsFromSupabase]", error.message);
+      return [];
+    }
+
+    return (leads ?? []).map(mapRow);
+  } catch (err) {
+    console.error("[getLeadsFromSupabase]", err);
     return [];
   }
-
-  return (leads ?? []).map(mapRow);
 }
 
 // ── CREATE ────────────────────────────────────────────────────────────────────
@@ -62,24 +100,10 @@ export async function addLeadToSupabase(data: {
   source?: LeadSource;
 }) {
   const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) throw new Error("Not authenticated");
-
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("business_id")
-    .eq("auth_user_id", user.id)
-    .single();
-
-  if (!profile?.business_id) {
-    throw new Error("No business associated with your account");
-  }
+  const { businessId, user } = await getEffectiveBusinessId();
 
   const { error } = await supabase.from("leads").insert({
-    business_id:         profile.business_id,
+    business_id:         businessId,
     created_by_user_id:  user.id,
     name:                data.name,
     phone:               data.phone,
@@ -103,6 +127,7 @@ export async function updateLeadInSupabase(
   updates: Partial<EnrichedLead>
 ) {
   const supabase = await createClient();
+  const { businessId } = await getEffectiveBusinessId();
 
   const patch: Record<string, unknown> = { last_activity_at: new Date().toISOString() };
   if (updates.status   !== undefined) patch.status    = updates.status;
@@ -117,7 +142,8 @@ export async function updateLeadInSupabase(
   const { error } = await supabase
     .from("leads")
     .update(patch)
-    .eq("phone", phone);
+    .eq("phone", phone)
+    .eq("business_id", businessId);
 
   if (error) throw new Error(error.message);
   revalidatePath("/leads");
@@ -127,14 +153,16 @@ export async function updateLeadInSupabase(
 
 export async function deleteLeadFromSupabase(phone: string) {
   const supabase = await createClient();
-  const { error } = await supabase.from("leads").delete().eq("phone", phone);
+  const { businessId } = await getEffectiveBusinessId();
+  const { error } = await supabase.from("leads").delete().eq("phone", phone).eq("business_id", businessId);
   if (error) throw new Error(error.message);
   revalidatePath("/leads");
 }
 
 export async function bulkDeleteLeadsFromSupabase(phones: string[]) {
   const supabase = await createClient();
-  const { error } = await supabase.from("leads").delete().in("phone", phones);
+  const { businessId } = await getEffectiveBusinessId();
+  const { error } = await supabase.from("leads").delete().in("phone", phones).eq("business_id", businessId);
   if (error) throw new Error(error.message);
   revalidatePath("/leads");
 }
@@ -144,10 +172,12 @@ export async function bulkUpdateLeadsInSupabase(
   status: LeadStatus
 ) {
   const supabase = await createClient();
+  const { businessId } = await getEffectiveBusinessId();
   const { error } = await supabase
     .from("leads")
     .update({ status, last_activity_at: new Date().toISOString() })
-    .in("phone", phones);
+    .in("phone", phones)
+    .eq("business_id", businessId);
   if (error) throw new Error(error.message);
   revalidatePath("/leads");
 }

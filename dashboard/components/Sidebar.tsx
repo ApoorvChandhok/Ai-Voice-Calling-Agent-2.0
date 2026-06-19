@@ -24,6 +24,7 @@ import {
   User,
   LogOut,
   ChevronDown,
+  ShieldCheck,
 } from "lucide-react";
 import { useTheme } from "next-themes";
 import { useAppContext } from "./app-provider";
@@ -442,6 +443,40 @@ export default function Sidebar() {
             </motion.div>
           );
         })}
+
+        {/* ── Super Admin Control Plane link ── */}
+        {role === 'super_admin' && (
+          <>
+            {isCollapsed ? (
+              <div className="h-6 mt-4 border-t border-violet-500/20 mx-2" />
+            ) : (
+              <div className="px-3 mb-3 mt-6 text-[10px] font-semibold text-violet-400/70 uppercase tracking-[0.15em]">
+                Control Plane
+              </div>
+            )}
+            <motion.div
+              custom={routes.length + configRoutes.length + 1}
+              variants={navItemVariants}
+              initial="initial"
+              animate="animate"
+            >
+              <Link
+                href="/super-admin"
+                className={`group relative flex items-center ${
+                  isCollapsed ? 'justify-center' : 'gap-4 px-4'
+                } py-3 rounded-xl transition-all duration-200 text-[13px] font-medium ${
+                  pathname.startsWith('/super-admin')
+                    ? 'bg-violet-500/15 text-violet-300'
+                    : 'text-violet-400/60 hover:bg-violet-500/10 hover:text-violet-300'
+                }`}
+                title={isCollapsed ? 'Control Panel' : undefined}
+              >
+                <ShieldCheck className="relative z-10 w-[18px] h-[18px] shrink-0" />
+                {!isCollapsed && <span className="relative z-10 flex-1">Control Panel</span>}
+              </Link>
+            </motion.div>
+          </>
+        )}
       </div>
 
       {/* Bottom controls (currency + theme + settings — no profile here anymore) */}

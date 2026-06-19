@@ -246,3 +246,64 @@
   - Modified `OutboundAssistant` (LLM Agent) to dynamically inject a critical system prompt forcing it to speak the specified target language instead of English.
   - Upgraded `run.py` to enforce `utf-8` on `sys.stdout` and `PYTHONIOENCODING` to prevent `UnicodeEncodeError: 'charmap' codec can't encode characters` crashes when the backend logs Hindi/non-English text.
 * **Impact:** Users can seamlessly initiate outbound calls in any supported language with a single click, and the AI will reliably converse in that language without crashing the backend process.
+
+### [2026-06-20] - Phase 1: Super Admin Multi-Tenant Layer (DB Schema)
+* **Context:** Architecting a multi-tenant SaaS platform where a single shared backend serves multiple client workspaces with strict data isolation. Phase 1 establishes all database infrastructure required before any frontend or backend code is written.
+* **Scope:**
+  - NEW `supabase/migrations/20260620000000_super_admin_layer.sql` — Additive migration (safe on existing schema):
+    - **`workspace_config`** table — stores per-workspace LiveKit trunk IDs (`livekit_trunk_id`, `inbound_trunk_id`, `dispatch_rule_id`), Vobiz DID number, and agent worker names. RLS: super_admin + service_role only (never exposed to clients).
+    - **`workspace_billing_rates`** table — stores per-workspace markup rates (charged to client) and actual provider cost baselines (Deepgram STT: $0.0043/min, Sarvam TTS: $0.004/min, Groq LLM: $0.0000006/token, LiveKit: $0.001/min). Editable per-client by super_admin.
+    - **`admin_audit_log`** table — immutable log of all super_admin platform actions (kill_room, create_workspace, delete_workspace, impersonate). Separate from business-scoped `audit_logs`.
+    - **`businesses` table extended** — added `slug`, `logo_url`, `phone_number`, `is_active`, `rate_out_per_min`, `rate_in_per_min` columns.
+    - **`call_logs` table extended** — added `duration_seconds`, `llm_tokens_used`, `room_name`, `cost_usd` columns needed for accurate billing computation.
+    - **`weekly_workspace_spend` VIEW** — real-time billing view aggregating 7-day call costs per workspace using the actual billing formula.
+    - **Helper functions** — `get_business_id_by_slug()`, `is_business_admin()`.
+    - **Workspace 1 migration** — RapidX seeded as the first workspace (fixed UUID `11111111-0000-0000-0000-000000000001`) with existing SIP trunk IDs pre-populated.
+    - **NULL-safety backfill** — any orphaned rows in leads/call_logs/workflows/agent_configs with NULL business_id are stamped with Workspace 1's UUID.
+* **Impact:** Database layer is now fully multi-tenant. All new workspaces will get isolated rows scoped by `business_id`. RLS prevents any cross-workspace data leakage. Python agents will read `workspace_config` per call instead of local JSON files (Phase 5).
+
+### [2026-06-20] - Phase 2: Super Admin Control Plane — Frontend + API
+* **Context:** After Phase 1 DB schema was applied, the super-admin frontend control plane is now built. This gives super_admin users a dedicated, visually distinct portal to manage all client workspaces from a single interface.
+* **Scope:**
+  - **`dashboard/middleware.ts`** — Super-admin route guard: any request to `/super-admin/**` does a DB role lookup. Non-super_admin users are redirected to `/dashboard?unauthorized=1`.
+  - **`dashboard/lib/types/super-admin.ts`** — TypeScript interfaces: `WorkspaceRow`, `WorkspaceConfig`, `BillingRates`.
+  - **`dashboard/app/(super-admin)/layout.tsx`** — Isolated layout with a custom minimal dark top nav (no Sidebar/AppProvider dependency), "Control Plane" breadcrumb, and super_admin user pill.
+  - **`dashboard/app/(super-admin)/super-admin/page.tsx`** — Main workspace listing page: 4 platform-wide stat cards, search/filter, full workspace table (status, trunk IDs, DID, 7-day spend bar + call breakdown), "New Workspace" button.
+  - **`dashboard/app/api/super-admin/workspaces/route.ts`** — `GET` endpoint: joins `businesses`, `workspace_config`, `workspace_billing_rates`, and `weekly_workspace_spend` view to return aggregated workspace data.
+  - **`dashboard/app/api/super-admin/workspaces/create/route.ts`** — `POST` endpoint: creates business record, billing rates, workspace_config placeholder, invited admin profile row, sends Supabase magic-link invite email, and writes an `admin_audit_log` entry. Non-fatal if invite fails.
+  - **`dashboard/components/super-admin/CreateWorkspaceModal.tsx`** — 4-step wizard modal: (1) Workspace details + auto-slug derivation, (2) Admin account (magic link invite), (3) Animated provisioning log (sequential log lines), (4) Done screen. Calls `/api/super-admin/workspaces/create`.
+  - **`dashboard/components/Sidebar.tsx`** — Added `ShieldCheck` icon + "Control Plane" nav section (violet-themed, separator divider) that only renders when `role === 'super_admin'`. Clicking navigates to `/super-admin`.
+* **Impact:** Super admins can now create and inspect all client workspaces from a single portal. All routes are server-side role-gated. The portal is visually distinct from client dashboards and will be extended in subsequent phases (live room monitor, workspace detail/edit, billing drilldown).
+* **Verification:** Manual — modal opens, wizard steps transition correctly, API route returns workspace rows from DB.
+
+### [2026-06-20] - Phase 3: Super Admin Impersonation Flow
+* **Context:** Super admins need to view the platform as a specific tenant to debug issues and support clients without requesting credentials.
+* **Scope:**
+  - **`leads-actions.ts`** — `getEffectiveBusinessId()` helper checks `active_workspace_id` cookie before defaulting to the authenticated user's `business_id`. Applied to all DB read/write actions.
+  - **`(dashboard)/layout.tsx`** — Reads `active_workspace_id` cookie; injects `ImpersonationBanner` when active.
+  - **`CreateWorkspaceModal.tsx`** — Fixed stale `apiError` across step navigation; safe JSON parsing prevents "Unexpected end of JSON input" on server crashes; error sends user back to Step 2 (not Step 1).
+* **Impact:** Super admins can impersonate any workspace and all data is correctly scoped. Persistent banner prevents confusion.
+* **Verification:** Manual — toggle impersonation, verify leads page scopes correctly.
+
+### [2026-06-20] - Phase 4: LiveKit SIP Auto-Provisioning
+* **Context:** Previously workspaces had no LiveKit SIP trunks after creation — calls required manual setup in the LiveKit dashboard. Phase 4 automates this in the create-workspace API.
+* **Scope:**
+  - **`/api/super-admin/workspaces/create/route.ts`** — Added `SipClient` (livekit-server-sdk) calls:
+    1. `createSipOutboundTrunk()` — `{slug}-outbound`, wired to shared Vobiz domain/credentials + workspace DID.
+    2. `createSipInboundTrunk()` — `{slug}-inbound`, accepts calls to the workspace DID.
+    3. `createSipDispatchRule()` — routes inbound calls to `inbound-caller` agent with `workspace_id` in room metadata (needed for Phase 5 multi-tenancy).
+    4. Trunk IDs saved to `workspace_config.livekit_trunk_id` and `inbound_trunk_id`.
+  - Provisioning is **non-fatal**: if LiveKit call fails or no DID is provided, workspace is still created and `provision_warning` is returned.
+  - **`CreateWorkspaceModal.tsx`** — Done step shows amber warning banner when `provision_warning` is set.
+* **Impact:** Full workspace provisioning (DB + invite + SIP trunks) happens in one wizard flow (~3s). Workspaces created without a DID can have trunks added manually later.
+* **Verification:** Manual — create workspace with DID, verify trunk IDs appear in `workspace_config` and LiveKit dashboard.
+
+### [2026-06-20] - Phase 5: Python Agent Multi-Tenant Config Decoupling
+* **Context:** The Python voice agents previously relied on local JSON files (`agent_config.json`) and specific `config_*.py` files to load parameters. In a multi-tenant cloud environment, this is unsustainable and insecure.
+* **Scope:**
+  - `workspace_config_loader.py` — Added a new Supabase REST client utility to fetch dynamic configuration per-workspace directly from the database without requiring heavy Supabase SDKs. Includes a fallback chain: DB -> legacy JSON -> hardcoded defaults.
+  - `agent_inbound.py` / `agent_outbound.py` — Updated the agents to extract `workspace_id` from the LiveKit room metadata upon startup, and dynamically load persona instructions, STT/TTS settings, and API keys.
+  - Removed `config_inbound.py`, `config_outbound.py`, and `sync_configs.py` — Technical debt removed as the agents now dynamically fetch configurations based on workspace context.
+  - `tester_agent.py` — Removed old syntax-checking tests tied to the obsolete config files.
+* **Impact:** The backend agents are now fully decoupled from local state for their configurations. They function as true multi-tenant microservices that adapt behavior based purely on the `workspace_id` passed via LiveKit metadata.
+* **Verification:** Validated that agents successfully spin up, parse the config loader, and use database values.

@@ -162,18 +162,6 @@ def check_backend_configs():
     else:
         log_warning("agent_config.json", "File not found — agents will use defaults")
 
-    # Check config_outbound.py syntax
-    for cfg_name in ["config_outbound.py", "config_inbound.py"]:
-        cfg_path = PROJECT_ROOT / cfg_name
-        if cfg_path.exists():
-            try:
-                with open(cfg_path, "r", encoding="utf-8") as f:
-                    compile(f.read(), cfg_name, "exec")
-                log_check(f"{cfg_name} syntax OK", True)
-            except SyntaxError as e:
-                log_check(f"{cfg_name} syntax OK", False, f"Line {e.lineno}: {e.msg}")
-        else:
-            log_check(f"{cfg_name} exists", False, "File not found")
 
     # Check agent scripts syntax
     for agent_name in ["agent_outbound.py", "agent_inbound.py"]:

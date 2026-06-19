@@ -1,0 +1,203 @@
+import { createClient } from '@/lib/supabase/server'
+import { NextResponse } from 'next/server'
+import { SipClient } from 'livekit-server-sdk'
+
+export const dynamic = 'force-dynamic'
+
+// ── LiveKit SIP client (shared credentials, isolated resources per workspace) ─
+function getSipClient() {
+  const url    = process.env.LIVEKIT_URL!
+  const key    = process.env.LIVEKIT_API_KEY!
+  const secret = process.env.LIVEKIT_API_SECRET!
+  if (!url || !key || !secret) throw new Error('LiveKit env vars not configured')
+  return new SipClient(url, key, secret)
+}
+
+export async function POST(request: Request) {
+  const supabase = await createClient()
+
+  // ── Auth + role guard ────────────────────────────────────────────────────────
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('role')
+    .eq('auth_user_id', user.id)
+    .single()
+
+  if (profile?.role !== 'super_admin') {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
+  // ── Parse body ───────────────────────────────────────────────────────────────
+  const body = await request.json()
+  const {
+    name,
+    slug,
+    phone_number,
+    admin_email,
+    admin_name,
+    rate_outbound = 0.02,
+    rate_inbound  = 0.01,
+  } = body
+
+  if (!name || !slug || !admin_email) {
+    return NextResponse.json({ error: 'name, slug, and admin_email are required' }, { status: 400 })
+  }
+
+  // ── 1. Create the business (workspace) ───────────────────────────────────────
+  const { data: business, error: bizError } = await supabase
+    .from('businesses')
+    .insert({ name, slug, phone_number: phone_number ?? null, is_active: true })
+    .select('id')
+    .single()
+
+  if (bizError) {
+    if (bizError.code === '23505') {
+      return NextResponse.json({ error: `Slug "${slug}" is already taken. Choose a different one.` }, { status: 409 })
+    }
+    return NextResponse.json({ error: bizError.message }, { status: 500 })
+  }
+
+  const businessId = business.id
+
+  // ── 2. Set billing rates ─────────────────────────────────────────────────────
+  await supabase.from('workspace_billing_rates').insert({
+    business_id:           businessId,
+    rate_outbound_per_min: rate_outbound,
+    rate_inbound_per_min:  rate_inbound,
+  })
+
+  // ── 3. LiveKit auto-provisioning ─────────────────────────────────────────────
+  // Each workspace gets its own SIP trunks + dispatch rule.
+  // The LiveKit account is shared (ours); resources are isolated per workspace.
+  let outboundTrunkId: string | null = null
+  let inboundTrunkId:  string | null = null
+  let provisionWarning: string | null = null
+
+  if (phone_number) {
+    try {
+      const sip = getSipClient()
+
+      // 3a. Outbound trunk — routes calls FROM this workspace through Vobiz
+      const outboundTrunk = await sip.createSipOutboundTrunk({
+        name:         `${slug}-outbound`,
+        address:      process.env.VOBIZ_SIP_DOMAIN ?? '4ab08e8a.sip.vobiz.ai',
+        numbers:      [phone_number],
+        authUsername: process.env.VOBIZ_USERNAME ?? '',
+        authPassword: process.env.VOBIZ_PASSWORD ?? '',
+      })
+      outboundTrunkId = outboundTrunk.sipTrunkId ?? null
+
+      // 3b. Inbound trunk — receives calls TO this workspace's DID
+      const inboundTrunk = await sip.createSipInboundTrunk({
+        name:    `${slug}-inbound`,
+        numbers: [phone_number],
+        // Allow calls from any IP (Vobiz doesn't use a fixed egress IP)
+        allowedAddresses: [],
+      })
+      inboundTrunkId = inboundTrunk.sipTrunkId ?? null
+
+      // 3c. Dispatch rule — routes inbound calls on this trunk to the shared
+      //     inbound-caller agent, embedding workspace_id in room metadata so
+      //     the agent knows which tenant's config to load.
+      if (inboundTrunkId) {
+        await sip.createSipDispatchRule(
+          // Rule: each call gets its own room with a workspace-scoped prefix
+          { dispatchRuleIndividual: { roomPrefix: `ws-${businessId.slice(0, 8)}-` } },
+          {
+            name:     `${slug}-dispatch`,
+            trunkIds: [inboundTrunkId],
+            // Agent that handles inbound calls — reads workspace_id from metadata
+            agentName: 'inbound-caller',
+            roomConfig: {
+              metadata: JSON.stringify({ workspace_id: businessId }),
+            },
+          }
+        )
+      }
+    } catch (livekitErr) {
+      // Non-fatal — workspace is created, trunks can be provisioned manually later.
+      // Surface a warning in the response so the UI can show it.
+      console.error('[create-workspace] LiveKit provisioning failed:', livekitErr)
+      provisionWarning = livekitErr instanceof Error
+        ? livekitErr.message
+        : 'LiveKit provisioning failed — trunks will need to be set up manually.'
+    }
+  } else {
+    provisionWarning = 'No DID number provided — LiveKit trunks skipped. Add a phone number later to enable calling.'
+  }
+
+  // ── 4. Save workspace_config (with trunk IDs if provisioned) ─────────────────
+  await supabase.from('workspace_config').insert({
+    business_id:          businessId,
+    vobiz_did_number:     phone_number ?? null,
+    livekit_trunk_id:     outboundTrunkId,
+    inbound_trunk_id:     inboundTrunkId,
+    agent_name_outbound:  'outbound-caller',
+    agent_name_inbound:   'inbound-caller',
+  })
+
+  // ── 5. Create the invited admin profile ──────────────────────────────────────
+  const { error: profileError } = await supabase.from('profiles').insert({
+    email:       admin_email,
+    full_name:   admin_name ?? '',
+    role:        'admin',
+    business_id: businessId,
+  })
+
+  if (profileError) {
+    if (profileError.code === '23505') {
+      return NextResponse.json(
+        { error: `Email "${admin_email}" is already registered in another workspace.` },
+        { status: 409 }
+      )
+    }
+    return NextResponse.json({ error: profileError.message }, { status: 500 })
+  }
+
+  // ── 6. Send magic link invite via Supabase Admin ─────────────────────────────
+  const { createClient: createAdminClient } = await import('@supabase/supabase-js')
+  const adminClient = createAdminClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { auth: { autoRefreshToken: false, persistSession: false } }
+  )
+
+  const { error: inviteError } = await adminClient.auth.admin.inviteUserByEmail(admin_email, {
+    redirectTo: `${process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000'}/auth/callback`,
+    data: {
+      full_name:   admin_name ?? '',
+      business_id: businessId,
+    },
+  })
+
+  if (inviteError) {
+    console.error('[create-workspace] invite error:', inviteError)
+    // Non-fatal — workspace created, admin can be re-invited later
+  }
+
+  // ── 7. Audit log ─────────────────────────────────────────────────────────────
+  await supabase.from('admin_audit_log').insert({
+    actor_id: user.id,
+    action:   'create_workspace',
+    target:   businessId,
+    metadata: {
+      name, slug, admin_email,
+      livekit_trunk_id:    outboundTrunkId,
+      inbound_trunk_id:    inboundTrunkId,
+      provision_warning:   provisionWarning,
+    },
+  })
+
+  return NextResponse.json({
+    success:              true,
+    business_id:          businessId,
+    name,
+    slug,
+    livekit_trunk_id:     outboundTrunkId,
+    inbound_trunk_id:     inboundTrunkId,
+    provision_warning:    provisionWarning,
+  })
+}

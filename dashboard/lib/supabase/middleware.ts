@@ -54,5 +54,24 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
+  // ── Super Admin guard ──────────────────────────────────────────────────────
+  // /super-admin/** routes require role = 'super_admin'.
+  // We do a lightweight DB check here — result cached via cookie session.
+  if (pathname.startsWith('/super-admin')) {
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('auth_user_id', user.id)
+      .single()
+
+    if (profile?.role !== 'super_admin') {
+      // Not a super admin — send to regular dashboard with a 403 flag
+      const url = request.nextUrl.clone()
+      url.pathname = '/'
+      url.searchParams.set('error', 'unauthorized')
+      return NextResponse.redirect(url)
+    }
+  }
+
   return supabaseResponse
 }
