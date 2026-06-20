@@ -99,7 +99,7 @@ export async function GET() {
   // ── Fetch admin (owner) emails per business ─────────────────────────────────
   const { data: admins } = await supabase
     .from('profiles')
-    .select('business_id, email, full_name')
+    .select('business_id, email, full_name, role')
     .in('role', ['admin', 'super_admin'])
 
   // ── Merge into WorkspaceRow shape ───────────────────────────────────────────

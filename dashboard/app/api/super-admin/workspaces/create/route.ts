@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 import { SipClient } from 'livekit-server-sdk'
+import { SIPTransport, RoomConfiguration } from '@livekit/protocol'
 
 export const dynamic = 'force-dynamic'
 
@@ -81,22 +82,27 @@ export async function POST(request: Request) {
       const sip = getSipClient()
 
       // 3a. Outbound trunk — routes calls FROM this workspace through Vobiz
-      const outboundTrunk = await sip.createSipOutboundTrunk({
-        name:         `${slug}-outbound`,
-        address:      process.env.VOBIZ_SIP_DOMAIN ?? '4ab08e8a.sip.vobiz.ai',
-        numbers:      [phone_number],
-        authUsername: process.env.VOBIZ_USERNAME ?? '',
-        authPassword: process.env.VOBIZ_PASSWORD ?? '',
-      })
+      const outboundTrunk = await sip.createSipOutboundTrunk(
+        `${slug}-outbound`,
+        process.env.VOBIZ_SIP_DOMAIN ?? '4ab08e8a.sip.vobiz.ai',
+        [phone_number],
+        {
+          transport: SIPTransport.SIP_TRANSPORT_AUTO,
+          authUsername: process.env.VOBIZ_USERNAME ?? '',
+          authPassword: process.env.VOBIZ_PASSWORD ?? '',
+        }
+      )
       outboundTrunkId = outboundTrunk.sipTrunkId ?? null
 
       // 3b. Inbound trunk — receives calls TO this workspace's DID
-      const inboundTrunk = await sip.createSipInboundTrunk({
-        name:    `${slug}-inbound`,
-        numbers: [phone_number],
-        // Allow calls from any IP (Vobiz doesn't use a fixed egress IP)
-        allowedAddresses: [],
-      })
+      const inboundTrunk = await sip.createSipInboundTrunk(
+        `${slug}-inbound`,
+        [phone_number],
+        {
+          // Allow calls from any IP (Vobiz doesn't use a fixed egress IP)
+          allowedAddresses: [],
+        }
+      )
       inboundTrunkId = inboundTrunk.sipTrunkId ?? null
 
       // 3c. Dispatch rule — routes inbound calls on this trunk to the shared
@@ -105,15 +111,13 @@ export async function POST(request: Request) {
       if (inboundTrunkId) {
         await sip.createSipDispatchRule(
           // Rule: each call gets its own room with a workspace-scoped prefix
-          { dispatchRuleIndividual: { roomPrefix: `ws-${businessId.slice(0, 8)}-` } },
+          { type: 'individual', roomPrefix: `ws-${businessId.slice(0, 8)}-` },
           {
             name:     `${slug}-dispatch`,
             trunkIds: [inboundTrunkId],
-            // Agent that handles inbound calls — reads workspace_id from metadata
-            agentName: 'inbound-caller',
-            roomConfig: {
+            roomConfig: new RoomConfiguration({
               metadata: JSON.stringify({ workspace_id: businessId }),
-            },
+            }),
           }
         )
       }
@@ -158,10 +162,15 @@ export async function POST(request: Request) {
   }
 
   // ── 6. Send magic link invite via Supabase Admin ─────────────────────────────
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    console.error('[create-workspace] Missing SUPABASE_SERVICE_ROLE_KEY in environment variables')
+    return NextResponse.json({ error: 'Server configuration error: Missing SUPABASE_SERVICE_ROLE_KEY. Please add it to .env.local' }, { status: 500 })
+  }
+
   const { createClient: createAdminClient } = await import('@supabase/supabase-js')
   const adminClient = createAdminClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY,
     { auth: { autoRefreshToken: false, persistSession: false } }
   )
 
