@@ -85,6 +85,15 @@
 
 ## 🪵 Immutable Change Log
 
+### [2026-06-20] - Multi-Tenant Vobiz Isolation & Credential Storage (Phase 6)
+* **Context:** The system previously relied on global Vobiz SIP credentials loaded from environment variables, which prevented per-tenant SIP trunk provisioning required for a multi-tenant SaaS architecture.
+* **Scope:**
+  - `supabase/migrations/20260620000001_vobiz_credentials.sql` — Added `sip_domain`, `vobiz_username`, and `vobiz_password` columns to the `workspace_config` table.
+  - `dashboard/components/super-admin/CreateWorkspaceModal.tsx` — Added a new "Telephony Config" step to collect Vobiz SIP credentials during workspace creation.
+  - `dashboard/app/api/super-admin/workspaces/create/route.ts` — Updated the API route to parse credentials from the request body, use them for LiveKit outbound trunk provisioning, and store them in the database.
+* **Impact:** Super admins can now provision isolated SIP trunks for each workspace using client-specific Vobiz credentials, enabling true multi-tenancy.
+* **Verification:** Code was updated to pass credentials properly into `createSipOutboundTrunk` and store them in Supabase.
+
 ### [2026-06-20] - Fix SIP Provisioning & Super Admin Queries
 * **Context:** Workspace creation was crashing due to outdated LiveKit SDK method signatures (v2.15.0) and missing role fields in the Supabase query.
 * **Scope:**
