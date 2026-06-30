@@ -521,6 +521,23 @@ export default function AgentConfigForm({ mode }: { mode: "inbound" | "outbound"
         </div>
       </div>
 
+      {/* Enabled Functions Summary Card */}
+      {config.custom_functions.filter(f => f.enabled).length > 0 && (
+        <div className="bg-indigo-50/50 dark:bg-indigo-500/10 border border-indigo-200/50 dark:border-indigo-500/20 rounded-xl p-4 flex flex-col gap-3 shadow-sm animate-in fade-in slide-in-from-top-2">
+           <div className="flex items-center gap-2 text-indigo-700 dark:text-indigo-400 font-semibold text-sm">
+             <Zap className="w-4 h-4 text-indigo-500" />
+             Active Capabilities on Call
+           </div>
+           <div className="flex flex-wrap gap-2">
+             {config.custom_functions.filter(f => f.enabled).map((fn, idx) => (
+                <span key={idx} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white dark:bg-[#161b22]/80 border border-indigo-100 dark:border-indigo-500/30 text-[11px] font-bold text-indigo-800 dark:text-indigo-300 shadow-sm uppercase tracking-wider">
+                  {fn.name}
+                </span>
+             ))}
+           </div>
+        </div>
+      )}
+
       {/* Section 1: Agent Identity */}
       <Section icon={Bot} title="Agent Identity" subtitle="Name and purpose of this AI agent" accentColor="blue">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
