@@ -121,8 +121,8 @@ export default function BulkDialer() {
         const text = await file.text();
         const lines = text.split('\n');
         
-        let headerLine = lines[0].toLowerCase();
-        let phoneIndex = headerLine.split(',').findIndex(col => col.trim().includes('phone'));
+        const headerLine = lines[0].toLowerCase();
+        const phoneIndex = headerLine.split(',').findIndex(col => col.trim().includes('phone'));
 
         if (phoneIndex === -1) {
             setStatus('error');

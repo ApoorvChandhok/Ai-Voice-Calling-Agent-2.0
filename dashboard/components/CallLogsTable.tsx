@@ -12,14 +12,36 @@ function formatCostINR(cost: string | number | undefined): string {
   return `₹${inr.toFixed(2)}`;
 }
 
-function getCallerNumber(log: any): string {
+export interface CallLog {
+  id?: string;
+  caller_number?: string;
+  caller_id?: string;
+  phone_number?: string;
+  timestamp: string | number;
+  status?: string;
+  direction?: string;
+  mode?: string;
+  cost?: string | number;
+  duration?: number | string;
+  mos?: number | string;
+  sentiment?: string;
+  recording_path?: string;
+  sip_call_id?: string;
+  user_info?: Record<string, string | number | boolean>;
+  caller_intent?: string;
+  summary?: string;
+  transcript?: string;
+  [key: string]: unknown;
+}
+
+function getCallerNumber(log: CallLog): string {
   if (log.caller_number) return log.caller_number;
   if (log.caller_id && log.caller_id.replace("+", "") !== AGENT_DID) return log.caller_id;
   if (log.phone_number && log.phone_number.replace("+", "") !== AGENT_DID) return log.phone_number;
   return log.phone_number || "Unknown";
 }
 
-export default function CallLogsTable({ logs }: { logs: any[] }) {
+export default function CallLogsTable({ logs }: { logs: CallLog[] }) {
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
 
   const toggleRow = (id: string) => {
@@ -61,22 +83,23 @@ export default function CallLogsTable({ logs }: { logs: any[] }) {
                 </td>
               </tr>
             ) : (
-              logs.map((log: any, idx: number) => {
+              logs.map((log: CallLog, idx: number) => {
                 const isPositive = log.sentiment?.toLowerCase().includes("positive");
                 const isNegative = log.sentiment?.toLowerCase().includes("negative");
                 const callerNumber = getCallerNumber(log);
                 const costDisplay = formatCostINR(log.cost);
                 const hasRecording = !!(log.recording_path || log.sip_call_id);
-                const isExpanded = expandedRows.has(log.id || String(idx));
+                const uniqueKey = log.id ? `${log.id}-${idx}` : String(idx);
+                const isExpanded = expandedRows.has(uniqueKey);
                 
                 const userName = log.user_info?.name || "Unknown Caller";
                 const whatIsSaid = log.caller_intent || log.summary || "No details available.";
 
                 return (
-                  <React.Fragment key={log.id || idx}>
+                  <React.Fragment key={uniqueKey}>
                     <tr 
                       className={`hover:bg-gray-50 dark:hover:bg-[#21262d] transition-colors group cursor-pointer ${isExpanded ? 'bg-gray-50 dark:bg-[#21262d]' : ''}`}
-                      onClick={() => toggleRow(log.id || String(idx))}
+                      onClick={() => toggleRow(uniqueKey)}
                     >
                       <td className="px-4 py-4">
                         <button className="text-gray-400 hover:text-gray-700 dark:text-[#8b949e] dark:hover:text-white transition-colors">
@@ -169,7 +192,7 @@ export default function CallLogsTable({ logs }: { logs: any[] }) {
                                   <h4 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">Extracted Information</h4>
                                   <div className="bg-white dark:bg-[#161b22] p-3 rounded-lg border border-gray-200/50 dark:border-white/5 shadow-sm">
                                     <dl className="space-y-2">
-                                      {Object.entries(log.user_info).map(([key, value]) => (
+                                      {Object.entries(log.user_info || {}).map(([key, value]) => (
                                         <div key={key} className="grid grid-cols-3 gap-2">
                                           <dt className="text-xs font-medium text-gray-500 dark:text-[#8b949e] capitalize">{key.replace(/_/g, ' ')}</dt>
                                           <dd className="text-xs text-gray-900 dark:text-[#e6edf3] col-span-2">{String(value || '-')}</dd>

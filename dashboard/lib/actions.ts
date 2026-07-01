@@ -67,7 +67,7 @@ export async function getCallLogs() {
     }
     
     // 3. Merge Local Logs and Vobiz CDRs
-    let mergedLogs: any[] = [];
+    const mergedLogs: any[] = [];
     
     const matchedLocalLogIndices = new Set<number>();
 
@@ -668,7 +668,7 @@ export async function getWalletData(): Promise<WalletData> {
     }
 
     // ── 3. Parse billing ledger into typed transactions
-    let transactions: WalletTransaction[] = allBillingItems.map((item: any, idx: number) => ({
+    const transactions: WalletTransaction[] = allBillingItems.map((item: any, idx: number) => ({
       id: item.id ?? item.uuid ?? String(idx),
       description: item.description ?? item.description_text ?? item.memo ?? 'Charge',
       amount: -(Math.abs(parseFloat(item.amount ?? item.cost ?? item.debit ?? '0'))),
