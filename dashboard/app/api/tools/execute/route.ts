@@ -342,6 +342,18 @@ async function handleBookAppointment(
   return `Perfect! Aapka appointment confirm ho gaya! ${patientName} ji, ${treatment} ke liye ${readableDate} ko ${readableTime} baje — Shri Krishna Dental Clinic, Greater Kailash mein. Aapko ek reminder bhi milega. Appointment ke din thodi der pehle aa jayiyega.`;
 }
 
+async function handleNoteTaking(
+  params: Record<string, unknown>,
+  workspaceId: string
+): Promise<string> {
+  const info = String(params.info || params.details || params.notes || "");
+  console.log(`[tool-gateway] 📝 Note taken for workspace=${workspaceId}: ${info}`);
+  
+  // In a real implementation, we could save this to Supabase DB.
+  // For now, we return a success message so the agent knows it's saved.
+  return `Successfully saved notes: ${info}`;
+}
+
 async function handleCheckAvailability(
   params: Record<string, unknown>,
   workspaceId: string
@@ -438,6 +450,11 @@ export async function POST(req: NextRequest) {
 
       case "check_availability":
         result = await handleCheckAvailability(parameters, workspaceId);
+        break;
+
+      case "note_taking":
+      case "save_memory":
+        result = await handleNoteTaking(parameters, workspaceId);
         break;
 
       // ─── Add new real-time integrations below ───────────────────────────

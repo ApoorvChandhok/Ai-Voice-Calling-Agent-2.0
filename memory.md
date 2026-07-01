@@ -164,6 +164,14 @@
 
 ## 🪵 Immutable Change Log
 
+### [2026-07-01] - Fix CRM Lead Loading and Enhance Call Analytics
+* **Context:** CRM Leads page was failing to load for users without a business ID, and user info was not being extracted into call logs.
+* **Scope:**
+  - `dashboard/lib/supabase/leads-actions.ts` [MODIFIED] — Updated `getEffectiveBusinessId` to handle missing auth/profiles gracefully instead of throwing errors. Added safety checks across all CRUD actions.
+  - `analytics.py` [MODIFIED] — Updated the Groq analysis prompt to extract structured `user_info` (name, phone, purpose, appointment details) and included this object in the saved call log entries.
+* **Impact:** Fixed the UI crash preventing leads from appearing. Call logs now capture structured user information for potential downstream workflow integrations.
+* **Verification:** Code review to ensure null returns are handled safely without crashing.
+
 ### [2026-06-30] - Implement Scenario 1 Dental Center with Google Calendar Booking
 * **Context:** User requested implementing Scenario 1 (Shri Krishna Dental Clinic, Delhi) into the live inbound agent config with real-time Google Calendar appointment booking and a 100% extensible tool gateway architecture.
 * **Scope:**

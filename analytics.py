@@ -51,7 +51,8 @@ async def analyze_and_save_call(phone_number: str, direction: str, chat_messages
                 "Analyze the following call transcript. Provide a JSON response with exactly these keys:\n"
                 "- \"summary\": A 1-2 sentence summary of the call.\n"
                 "- \"sentiment\": Positive, Neutral, or Negative.\n"
-                "- \"caller_intent\": What the caller was asking about or wanted.\n\n"
+                "- \"caller_intent\": What the caller was asking about or wanted.\n"
+                "- \"user_info\": A JSON object containing extracted details about the user (e.g., 'name', 'phone', 'purpose', 'appointment_details', 'city', 'email', etc.). Include all relevant info discussed in the call. If not mentioned, leave null.\n\n"
                 f"Transcript:\n{full_transcript}"
             )
             
@@ -78,6 +79,7 @@ async def analyze_and_save_call(phone_number: str, direction: str, chat_messages
             "summary": analysis.get("summary", "No summary available"),
             "sentiment": analysis.get("sentiment", "Neutral"),
             "caller_intent": analysis.get("caller_intent", "Unknown"),
+            "user_info": analysis.get("user_info", {}),
             "transcript": full_transcript
         }
         

@@ -452,7 +452,7 @@ class InboundTools(llm.ToolContext):
             )
             loop = asyncio.get_event_loop()
             response_text = await asyncio.wait_for(
-                loop.run_in_executor(None, lambda: _do_http(req)),
+                loop.run_in_executor(None, lambda: _do_http(req, timeout=14.0)),
                 timeout=15.0,  # increased: token refresh + freeBusy + create can take 10s
             )
             data = json.loads(response_text)
@@ -467,10 +467,10 @@ class InboundTools(llm.ToolContext):
             return "Bilkul, ek second ruko — main aapki request note kar rahi hoon aur hamaari team aapko jald confirm karegi."
 
 
-def _do_http(req: urllib.request.Request) -> str:
+def _do_http(req: urllib.request.Request, timeout: float = 5.0) -> str:
     """Blocking HTTP call — run in executor so it doesn't block the event loop."""
     try:
-        with urllib.request.urlopen(req, timeout=5) as resp:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             return resp.read().decode("utf-8")
     except urllib.error.HTTPError as e:
         body = e.read().decode("utf-8", errors="replace")
